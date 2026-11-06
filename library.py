@@ -2,7 +2,7 @@
 
 data/voices/<id>/ref.wav      audio mẫu đã chuẩn hoá (mono, cắt lặng, peak-normalize)
 data/voices/<id>/meta.json    metadata
-data/voices/<id>/preview.*    câu đọc thử (sinh khi gọi /preview)
+data/voices/<id>/preview.<cache_tag>.*  câu đọc thử (sinh khi gọi /preview; đổi precision/mode thì tự sinh lại)
 data/voices/<id>/emb.*.npz    cache embedding do engine tự ghi (nếu có)
 data/favorites.json           ["engine:voice_id", …] cho giọng preset
 """
@@ -268,3 +268,13 @@ def set_favorite(engine: str, voice: str, on: bool) -> None:
         (favs.add if on else favs.discard)(f"{engine}:{voice}")
         FAVORITES.parent.mkdir(parents=True, exist_ok=True)
         _write_json(FAVORITES, sorted(favs))
+
+
+def drop_untagged_previews() -> int:
+    """Xoá preview.wav kiểu cũ (không có cache_tag) của mọi giọng: không biết sinh bằng precision/mode nào. Trả về số file đã xoá.
+    (preview.mp3 không tag là của engine không có cache_tag, như edge: vẫn hợp lệ.)"""
+    n = 0
+    for f in VOICES.glob("*/preview.wav"):
+        f.unlink(missing_ok=True)
+        n += 1
+    return n

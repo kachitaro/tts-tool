@@ -128,6 +128,18 @@ LIB=$(json "d['voice']" <"$WORK/lib.json" 2>/dev/null)
 check "giọng lib: xuất hiện trong /api/voices/vieneu" bash -c "curl -s $B/api/voices/vieneu | grep -q '$LIB'"
 check "tts bằng giọng lib:" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/tts -F text='Xin chào.' -F engine=vieneu -F voice='$LIB')\" = 200 ]"
 check "preview giọng lib (cache)" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' $B/api/library/${LIB#lib:}/preview)\" = 200 ] && [ \"\$(curl -s -o /dev/null -w '%{http_code}' $B/api/library/${LIB#lib:}/preview)\" = 200 ]"
+VD="$DATA/voices/${LIB#lib:}"
+check "preview giọng lib đặt tên theo cache_tag (preview.<tag>.wav), không có preview.wav trần" bash -c "ls $VD | grep -qE '^preview\.v3turbo(-int8)?\.wav\$' && ! [ -e $VD/preview.wav ]"
+check "preview của tag khác (precision / mode cũ) bị thay bằng bản đúng tag, chỉ còn một file preview" bash -c "rm -f $VD/preview.*; echo x >$VD/preview.v3turbo-fake.wav; [ \"\$(curl -s -o /dev/null -w '%{http_code}' $B/api/library/${LIB#lib:}/preview)\" = 200 ] && [ \"\$(ls $VD | grep -c '^preview\.')\" = 1 ] && ! [ -e $VD/preview.v3turbo-fake.wav ] && ls $VD | grep -qE '^preview\.v3turbo(-int8)?\.wav\$'"
+check "xoá preview.wav cũ không có tag (library.drop_untagged_previews), giữ preview.mp3 / bản đã có tag" env TTS_DATA_DIR="$WORK/prev" $PY - <<'PYEOF2'
+import library
+d = library.VOICES / "abc"
+d.mkdir(parents=True)
+(d / "preview.wav").write_bytes(b"old")
+assert library.drop_untagged_previews() == 1 and not (d / "preview.wav").exists()
+(d / "preview.mp3").write_bytes(b"x"); (d / "preview.v3turbo.wav").write_bytes(b"x")
+assert library.drop_untagged_previews() == 0 and (d / "preview.mp3").exists() and (d / "preview.v3turbo.wav").exists()
+PYEOF2
 check "sửa metadata + yêu thích" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X PATCH $B/api/library/${LIB#lib:} -F name='Giọng đổi tên' -F favorite=true)\" = 200 ]"
 
 echo "== trộn giọng"

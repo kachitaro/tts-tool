@@ -42,6 +42,7 @@ PREVIEW_TEXT = "Xin chào, đây là giọng đọc thử."
 @asynccontextmanager
 async def lifespan(_):
     dialogue.prune_cache()  # giữ data/cache/ ≤ TTS_CACHE_MB ngay khi khởi động
+    library.drop_untagged_previews()  # preview.wav cũ chưa có cache_tag
     bookq.Q.start(book_voices)  # nạp data/queue.json; chương đang dở khi server chết sẽ chạy tiếp
     yield
     await bookq.Q.stop()  # dừng ở ranh giới mảnh, trả chương dở về hàng đợi
@@ -424,9 +425,11 @@ async def library_preview(voice_id: str):
     except library.NotFound:
         raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
     d = library.voice_dir(voice_id)
-    cached = next(iter(d.glob("preview.*")), None)
+    e = get_engine(meta["engine"])
+    # preview.<cache_tag>.<ext>: đổi precision / mode thì tên khác → tự sinh lại. Engine không có tag (edge) dùng preview.<ext>.
+    stem = f"preview.{e.cache_tag()}" if e.cache_tag() else "preview"
+    cached = next((p for ext in ("wav", "mp3") if (p := d / f"{stem}.{ext}").is_file()), None)
     if cached is None:
-        e = get_engine(meta["engine"])
         reason = e.unusable_reason(meta)
         if reason:
             raise HTTPException(400, f"Giọng không dùng được: {reason}.")
@@ -434,7 +437,9 @@ async def library_preview(voice_id: str):
             data, mime = await e.synthesize(PREVIEW_TEXT, library.LIB_PREFIX + voice_id, 0)
         except Exception as ex:
             raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
-        cached = d / ("preview.mp3" if mime == "audio/mpeg" else "preview.wav")
+        for old in d.glob("preview.*"):  # bản của tag khác (precision / mode cũ)
+            old.unlink(missing_ok=True)
+        cached = d / f"{stem}.{'mp3' if mime == 'audio/mpeg' else 'wav'}"
         cached.write_bytes(data)
     return FileResponse(cached, media_type="audio/mpeg" if cached.suffix == ".mp3" else "audio/wav")
 
