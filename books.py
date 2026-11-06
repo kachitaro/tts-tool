@@ -75,6 +75,7 @@ def default_settings() -> dict:
         "read_title": True,
         "split": {"regex": DEFAULT_SPLIT_REGEX, "mode": "regex", "ops": []},
         "clean": {"rules": {name: True for name, _ in RULES}, "custom": [], "separator_pause": 1.5},
+        "exceptions": [],  # [{rule, line}]: quy tắc làm sạch không áp dụng cho dòng đó ("Giữ dòng này")
     }
 
 
@@ -300,6 +301,7 @@ def import_files(files: list[tuple[str, bytes]], title: str, author: str, voice:
             "id": book_id, "title": title[:200], "author": author[:200], "voice": voice, "speed": 0, "normalize": True,
             "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": "draft",
             "sources": sources, "chapters": {"count": 0, "chars": 0}, **default_settings(),
+            "lexicon": [], "dialogue_voice": {"enabled": False, **voice},
         }
         _write_json(d / "book.json", book)
     docs = load_docs(book_id)
@@ -427,6 +429,46 @@ def _stat(stats: dict, key: str, n: int = 1) -> None:
     stats[key] = stats.get(key, 0) + n
 
 
+MAX_EXAMPLES = 50     # số dòng ví dụ tối đa lưu cho mỗi quy tắc (đếm thì đếm hết)
+MAX_EXCEPTIONS = 5000
+
+
+def validate_exceptions(items) -> list[dict]:
+    """Danh sách ngoại lệ [{rule, line}]: quy tắc `rule` không áp dụng cho dòng `line`. Bỏ trùng."""
+    names = {n for n, _ in RULES}
+    out, seen = [], set()
+    for it in items or []:
+        rule, line = str(it.get("rule", "")), str(it.get("line", "")).strip()
+        if rule not in names or not line:
+            raise BookError("Ngoại lệ phải có quy tắc hợp lệ và nội dung dòng.")
+        if (rule, line) not in seen:
+            seen.add((rule, line))
+            out.append({"rule": rule, "line": line[:1000]})
+    if len(out) > MAX_EXCEPTIONS:
+        raise BookError(f"Tối đa {MAX_EXCEPTIONS} ngoại lệ.")
+    return out
+
+
+class Ctx:
+    """Gom thống kê + dòng ví dụ của từng quy tắc trong một lần build, và tra ngoại lệ."""
+
+    def __init__(self, exceptions: list[dict]) -> None:
+        self.exc = {(e["rule"], e["line"]) for e in exceptions}
+        self.stats: dict = {}
+        self.events: dict[str, list[dict]] = {}
+        self.chapter = 0
+        self.title = ""
+
+    def keep(self, rule: str, line: str) -> bool:
+        return (rule, line) in self.exc
+
+    def hit(self, rule: str, key: str | None, before, after: str = "") -> None:
+        _stat(self.stats, rule)
+        ev = self.events.setdefault(rule, [])
+        if len(ev) < MAX_EXAMPLES:
+            ev.append({"chapter": self.chapter, "title": self.title, "key": key, "before": before, "after": after})
+
+
 def boilerplate_lines(chapters: list[Raw]) -> set[str]:
     """Dòng dài (≥ 20 ký tự) xuất hiện ở ≥ max(3, nửa số chương) chương: đầu/cuối trang của web truyện."""
     n = len(chapters)
@@ -440,30 +482,36 @@ def boilerplate_lines(chapters: list[Raw]) -> set[str]:
     return {l for l, c in seen.items() if c >= need}
 
 
-def clean_lines(lines: list[str], cfg: dict, stats: dict, boiler: set[str]) -> list[str]:
+def clean_lines(lines: list[str], cfg: dict, ctx: Ctx, boiler: set[str]) -> list[str]:
     rules = cfg["rules"]
     pause = f"[nghỉ {cfg['separator_pause']:g}s]"
     out: list[str] = []
     for raw in lines:
-        s = raw.strip()
-        if rules["quotes"]:
-            s = s.translate(_QUOTES)
-        if rules["ellipsis"]:
-            s = _ELLIPSIS.sub("…", s)
-        if s and rules["url_lines"] and _URL.search(s):
-            _stat(stats, "url_lines"); continue
-        if s and rules["credit_lines"] and _CREDIT.search(s):
-            _stat(stats, "credit_lines"); continue
-        if s and rules["separators"] and _SEP.match(s):
-            out.append(pause); _stat(stats, "separators"); continue
-        if s and rules["dup_lines"] and s in boiler:
-            _stat(stats, "dup_lines"); continue
+        s0 = s = raw.strip()
+        if s and rules["quotes"] and not ctx.keep("quotes", s0):
+            t = s.translate(_QUOTES)
+            if t != s:
+                ctx.hit("quotes", s0, s0, t)
+                s = t
+        if s and rules["ellipsis"] and not ctx.keep("ellipsis", s0):
+            t = _ELLIPSIS.sub("…", s)
+            if t != s:
+                ctx.hit("ellipsis", s0, s0, t)
+                s = t
+        if s and rules["url_lines"] and _URL.search(s) and not ctx.keep("url_lines", s0):
+            ctx.hit("url_lines", s0, s0); continue
+        if s and rules["credit_lines"] and _CREDIT.search(s) and not ctx.keep("credit_lines", s0):
+            ctx.hit("credit_lines", s0, s0); continue
+        if s and rules["separators"] and _SEP.match(s) and not ctx.keep("separators", s0):
+            out.append(pause); ctx.hit("separators", s0, s0, pause); continue
+        if s and rules["dup_lines"] and s in boiler and not ctx.keep("dup_lines", s0):
+            ctx.hit("dup_lines", s0, s0); continue
         out.append(s)
     if rules["dup_lines"]:  # dòng dài liền nhau giống hệt nhau
         dedup: list[str] = []
         for s in out:
-            if s and len(s) >= 12 and dedup and dedup[-1] == s:
-                _stat(stats, "dup_lines"); continue
+            if s and len(s) >= 12 and dedup and dedup[-1] == s and not ctx.keep("dup_lines", s):
+                ctx.hit("dup_lines", s, s); continue
             dedup.append(s)
         out = dedup
     if rules["join_lines"]:  # gộp dòng bị ngắt giữa câu
@@ -471,41 +519,65 @@ def clean_lines(lines: list[str], cfg: dict, stats: dict, boiler: set[str]) -> l
         for s in out:
             prev = joined[-1] if joined else ""
             if (prev and s and prev[-1] not in _TERMINATORS and not _PAUSE_LINE.match(prev) and not _PAUSE_LINE.match(s)
-                    and (s[0].islower() or s[0] in ",;.)")):
-                joined[-1] = f"{prev} {s}"; _stat(stats, "join_lines"); continue
+                    and (s[0].islower() or s[0] in ",;.)") and not ctx.keep("join_lines", s)):
+                merged = f"{prev} {s}"
+                ctx.hit("join_lines", s, [prev, s], merged)
+                joined[-1] = merged; continue
             joined.append(s)
         out = joined
     text = "\n".join(out)
     for r in cfg["custom"]:
         if r["enabled"]:
-            text, n = re.subn(r["pattern"], r["replace"], text, flags=re.MULTILINE)
-            _stat(stats, "custom", n)
+            rx = re.compile(r["pattern"], re.MULTILINE)
+            for m in rx.finditer(text):
+                try:
+                    after = m.expand(r["replace"])
+                except (re.error, IndexError):
+                    after = r["replace"]
+                ctx.hit("custom", None, m.group(0)[:300], after[:300])
+            text = rx.sub(r["replace"], text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip("\n")  # tối đa một dòng trống giữa các đoạn
     return text.split("\n") if text else []
 
 
+def _clean_doc_chars(d: Doc, ctx: Ctx) -> None:
+    """Quy tắc control_chars: chuẩn hoá từng dòng (ngoại lệ thì giữ nguyên dòng đó)."""
+    text = d.text.replace("\r\n", "\n").replace("\r", "\n")
+    new = _CTRL.sub("", unicodedata.normalize("NFC", text.replace("\u00a0", " ").replace("\u3000", " ")))
+    if new == text:
+        d.text = text
+        return
+    ctx.title = d.name
+    old_lines, new_lines = text.split("\n"), new.split("\n")
+    for k, (o, n) in enumerate(zip(old_lines, new_lines)):
+        if o != n:
+            key = o.strip()
+            if ctx.keep("control_chars", key):
+                new_lines[k] = o
+            else:
+                ctx.hit("control_chars", key, key, n.strip())
+    d.text = "\n".join(new_lines)
+
+
 def build(docs: list[Doc], settings: dict) -> dict:
-    """Tách chương + làm sạch → {"chapters": [{n, title, text}], "stats": {...}, "dropped": số chương rỗng bị bỏ}.
-    settings: {"split": {regex, mode, ops}, "clean": {...}}."""
+    """Tách chương + làm sạch → {"chapters": [{n, title, text}], "stats": {...}, "rules": {tên: {count, examples}},
+    "dropped": số chương rỗng bị bỏ}. settings: {"split": {regex, mode, ops}, "clean": {...}, "exceptions": [...]}."""
     split, clean = settings["split"], validate_clean(settings["clean"])
     if split["mode"] not in ("regex", "per_file"):
         raise BookError("mode phải là 'regex' hoặc 'per_file'.")
-    stats: dict = {}
-    if clean["rules"]["control_chars"]:
-        for d in docs:
-            before = d.text
-            d.text = _CTRL.sub("", unicodedata.normalize("NFC", before.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ").replace("\u3000", " ")))
-            if d.text != before:
-                _stat(stats, "control_chars")
-    else:
-        for d in docs:
+    ctx = Ctx(validate_exceptions(settings.get("exceptions")))
+    for d in docs:
+        if clean["rules"]["control_chars"]:
+            _clean_doc_chars(d, ctx)
+        else:
             d.text = d.text.replace("\r\n", "\n").replace("\r", "\n")
     raw = (split_per_file if split["mode"] == "per_file" else split_regex)(docs, split["regex"])
     raw = apply_ops(raw, split.get("ops") or [])
     boiler = boilerplate_lines(raw) if clean["rules"]["dup_lines"] else set()
     chapters, dropped = [], 0
     for i, ch in enumerate(raw):
-        body = clean_lines(ch.lines, clean, stats, boiler)
+        ctx.chapter, ctx.title = len(chapters) + 1, ch.title
+        body = clean_lines(ch.lines, clean, ctx, boiler)
         text = "\n".join(body)
         title = ch.title
         if not title and i == 0:  # phần trước chương đầu tiên
@@ -515,16 +587,19 @@ def build(docs: list[Doc], settings: dict) -> dict:
         if len(text) < MIN_CHAPTER_CHARS:
             dropped += 1; continue
         chapters.append({"n": len(chapters) + 1, "title": title, "text": text, "raw": i})
-    return {"chapters": chapters, "stats": stats, "dropped": dropped}
+    rules = {name: {"count": ctx.stats.get(name, 0), "examples": ctx.events.get(name, [])}
+             for name in [n for n, _ in RULES] + ["custom"] if ctx.stats.get(name)}
+    return {"chapters": chapters, "stats": ctx.stats, "rules": rules, "dropped": dropped}
 
 
 def overrides(book: dict, body: dict) -> dict:
-    """Cài đặt hiệu lực = cài đặt đã lưu, ghi đè bởi body (regex, mode, ops, clean) — dùng cho xem trước."""
+    """Cài đặt hiệu lực = cài đặt đã lưu, ghi đè bởi body (regex, mode, ops, clean, exceptions) — dùng cho xem trước."""
     split = dict(book["split"])
     for k in ("regex", "mode", "ops"):
         if body.get(k) is not None:
             split[k] = body[k]
-    return {"split": split, "clean": body.get("clean") or book["clean"]}
+    exceptions = body["exceptions"] if body.get("exceptions") is not None else book.get("exceptions", [])
+    return {"split": split, "clean": body.get("clean") or book["clean"], "exceptions": exceptions}
 
 
 def summarize(built: dict) -> list[dict]:
@@ -545,6 +620,7 @@ def confirm(book_id: str, built: dict, settings: dict) -> dict:
             (d / f"{c['n']:04d}.txt").write_text(c["text"], encoding="utf-8")
             _write_json(d / f"{c['n']:04d}.json", {"n": c["n"], "title": c["title"], "chars": len(c["text"]), "status": "pending"})
         book["split"], book["clean"] = settings["split"], validate_clean(settings["clean"])
+        book["exceptions"] = validate_exceptions(settings.get("exceptions"))
         book["status"] = "ready"
         book["chapters"] = {"count": len(built["chapters"]), "chars": sum(len(c["text"]) for c in built["chapters"])}
         _write_json(_dir(book_id) / "book.json", book)
@@ -572,10 +648,23 @@ def reading_text(book: dict, meta: dict, body: str) -> str:
     return f"{meta['title']}\n\n{body}" if book.get("read_title", True) and meta.get("title") else body
 
 
-def excerpt(text: str, limit: int = 300) -> str:
-    """Đoạn đầu ~limit ký tự, cắt ở ranh giới đoạn/câu (không cắt giữa thẻ [nghỉ …])."""
+def excerpt(text: str, limit: int = 300, offset: float = 0.0) -> str:
+    """Đoạn ~limit ký tự bắt đầu ở dòng gần vị trí `offset` (0..1) của văn bản, cắt ở ranh giới câu
+    (không cắt giữa thẻ [nghỉ …])."""
+    lines = text.split("\n")
+    start = 0
+    if offset > 0:
+        goal, acc = offset * len(text), 0
+        start = len(lines) - 1
+        for k, l in enumerate(lines):
+            if acc >= goal:
+                start = k
+                break
+            acc += len(l) + 1
+        while start and lines[start].strip() == "":
+            start -= 1
     out, total = [], 0
-    for para in text.split("\n"):
+    for para in lines[start:]:
         if total >= limit:
             break
         if total + len(para) > limit * 1.5 and not _PAUSE_LINE.match(para):
@@ -584,3 +673,9 @@ def excerpt(text: str, limit: int = 300) -> str:
         out.append(para)
         total += len(para)
     return "\n".join(out).strip()
+
+
+def iter_chapters(book_id: str):
+    """(n, văn bản đã làm sạch) của từng chương, theo thứ tự."""
+    for p in sorted((_dir(book_id) / "chapters").glob("*.txt")):
+        yield int(p.stem), p.read_text(encoding="utf-8")

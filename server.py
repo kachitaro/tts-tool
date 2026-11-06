@@ -24,6 +24,8 @@ from pydantic import BaseModel
 
 import books
 import dialogue
+import lexicon
+import narrate
 import history
 import library
 import text_normalize
@@ -584,6 +586,7 @@ class SplitIn(BaseModel):
     mode: str | None = None
     ops: list[dict] | None = None
     clean: dict | None = None
+    exceptions: list[dict] | None = None
 
 
 class BookPatch(BaseModel):
@@ -595,6 +598,9 @@ class BookPatch(BaseModel):
     read_title: bool | None = None
     split: dict | None = None
     clean: dict | None = None
+    exceptions: list[dict] | None = None
+    lexicon: list[dict] | None = None
+    dialogue_voice: dict | None = None
 
 
 async def build_book(book_id: str, book: dict, body: SplitIn) -> tuple[dict, dict]:
@@ -662,7 +668,16 @@ def books_patch(book_id: str, body: BookPatch):
             book["split"] = sp
         if body.clean is not None:
             book["clean"] = books.validate_clean(body.clean)
-    except books.BookError as ex:
+        if body.exceptions is not None:
+            book["exceptions"] = books.validate_exceptions(body.exceptions)
+        if body.lexicon is not None:
+            book["lexicon"] = lexicon.validate(body.lexicon)
+        if body.dialogue_voice is not None:
+            dv = body.dialogue_voice
+            e = get_engine(str(dv.get("engine", "")))
+            check_lib_voice(e, str(dv.get("voice", "")))
+            book["dialogue_voice"] = {"enabled": bool(dv.get("enabled")), "engine": e.id, "voice": str(dv["voice"])}
+    except (books.BookError, lexicon.LexiconError) as ex:
         raise HTTPException(400, str(ex))
     books.save(book)
     return book
@@ -680,7 +695,7 @@ async def books_preview(book_id: str, body: SplitIn | None = None):
     """Xem trước danh sách chương với cài đặt hiện tại (có thể ghi đè bằng body); không ghi gì ra đĩa."""
     built, _ = await build_book(book_id, book_or_404(book_id), body or SplitIn())
     chapters = books.summarize(built)
-    return {"chapters": chapters, "stats": built["stats"], "dropped": built["dropped"],
+    return {"chapters": chapters, "stats": built["stats"], "rules": built["rules"], "dropped": built["dropped"],
             "total_chars": sum(c["chars"] for c in chapters)}
 
 
@@ -711,24 +726,89 @@ def books_chapter(book_id: str, n: int):
     return {**meta, "text": body, "reading_text": books.reading_text(book, meta, body)}
 
 
+def book_voices(book: dict):
+    """(giọng kể, giọng lời thoại hoặc None) dạng (engine, voice); kiểm tra engine + giọng thư viện."""
+    def one(v: dict):
+        e = get_engine(v["engine"])
+        check_lib_voice(e, v["voice"])
+        return e, v["voice"]
+    dv = book.get("dialogue_voice") or {}
+    return one(book["voice"]), (one(dv) if dv.get("enabled") else None)
+
+
+async def speak_book(book: dict, text: str, use_lexicon: bool = True) -> tuple[bytes, float]:
+    narr, dlg = book_voices(book)
+    try:
+        wav = await narrate.render(text, narr, dlg, book["speed"], book["normalize"],
+                                   book.get("lexicon") if use_lexicon else None,
+                                   lexicon.load_global() if use_lexicon else None)
+        data, _ = await anyio.to_thread.run_sync(dialogue.encode_outputs, wav, False)
+    except Exception as ex:
+        raise HTTPException(narr[0].error_status, f"{narr[0].name} lỗi: {ex}")
+    return data, len(wav) / dialogue.SR
+
+
 @app.get("/api/books/{book_id}/chapters/{n}/sample")
-async def books_sample(book_id: str, n: int):
-    """Nghe thử đầu chương (~300 ký tự) bằng giọng và cài đặt của truyện (pipeline hội thoại: cache từng đoạn)."""
+async def books_sample(book_id: str, n: int, chars: int = 300, offset: float = 0.0, use_lexicon: bool = True):
+    """Nghe thử một đoạn chương bằng giọng + từ điển + (nếu bật) giọng lời thoại của truyện, qua pipeline hội thoại.
+    chars ≈ 300 (▶) hoặc ≈ 900 ("Đọc thử 1 phút"); offset 0..1 chọn chỗ bắt đầu trong chương (0 = đầu, có đọc tiêu đề)."""
     book = book_or_404(book_id)
+    if not 50 <= chars <= 3000 or not 0 <= offset <= 1:
+        raise HTTPException(400, "chars phải từ 50 đến 3000 và offset từ 0 đến 1.")
     try:
         meta, body = books.chapter_text(book_id, n)
     except books.NotFound:
         raise HTTPException(404, "Không có chương này.")
-    e = get_engine(book["voice"]["engine"])
-    voice = book["voice"]["voice"]
-    check_lib_voice(e, voice)
-    text = books.excerpt(books.reading_text(book, meta, body), 300)
+    text = books.excerpt(books.reading_text(book, meta, body) if offset == 0 else body, chars, offset)
+    data, seconds = await speak_book(book, text, use_lexicon)
+    return Response(data, media_type="audio/wav", headers={"X-Sample-Seconds": f"{seconds:.1f}", "X-Sample-Chars": str(len(text))})
+
+
+class SpeakIn(BaseModel):
+    text: str
+    use_lexicon: bool = True
+
+
+@app.post("/api/books/{book_id}/speak")
+async def books_speak(book_id: str, body: SpeakIn):
+    """Đọc một đoạn văn bản bất kỳ bằng giọng của truyện (nghe thử câu ví dụ của gợi ý từ điển)."""
+    text = body.text.strip()
+    if not text or len(text) > 2000:
+        raise HTTPException(400, "Văn bản phải từ 1 đến 2000 ký tự.")
+    data, seconds = await speak_book(book_or_404(book_id), text, body.use_lexicon)
+    return Response(data, media_type="audio/wav", headers={"X-Sample-Seconds": f"{seconds:.1f}"})
+
+
+@app.post("/api/books/{book_id}/lexicon/apply")
+def books_lexicon_apply(book_id: str, body: SpeakIn):
+    """Văn bản sau khi qua từ điển của truyện + toàn cục (để kiểm tra; chưa qua chuẩn hoá và tách lời thoại)."""
+    book = book_or_404(book_id)
+    return {"text": lexicon.apply(body.text, book.get("lexicon"), lexicon.load_global())}
+
+
+@app.get("/api/books/{book_id}/suggest")
+async def books_suggest(book_id: str, min_count: int = 3, limit: int = 200):
+    """Gợi ý tên riêng: cụm viết hoa 2–4 tiếng KHÔNG đứng đầu câu, lặp ≥ min_count lần (bỏ cụm đã có trong từ điển)."""
+    book = book_or_404(book_id)
+    if book["status"] != "ready":
+        raise HTTPException(400, "Hãy tách chương trước.")
+    known = {e["match"] for e in (book.get("lexicon") or []) + lexicon.load_global()}
+    terms = await anyio.to_thread.run_sync(
+        lambda: lexicon.suggest_terms(books.iter_chapters(book_id), known, max(1, min_count), max(1, min(limit, 1000))))
+    return {"terms": [{"phrase": t.phrase, "count": t.count, "chapter": t.chapter, "example": t.example} for t in terms]}
+
+
+@app.get("/api/lexicon")
+def lexicon_get():
+    return lexicon.load_global()
+
+
+@app.put("/api/lexicon")
+def lexicon_put(entries: list[dict]):
     try:
-        wav = await dialogue.render_text(e, voice, text, book["speed"], book["normalize"], 0, None, [])
-        data, _ = await anyio.to_thread.run_sync(dialogue.encode_outputs, wav, False)
-    except Exception as ex:
-        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
-    return Response(data, media_type="audio/wav")
+        return lexicon.save_global(entries)
+    except lexicon.LexiconError as ex:
+        raise HTTPException(400, str(ex))
 
 
 # ───────────────────────────── lịch sử ─────────────────────────────

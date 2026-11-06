@@ -136,8 +136,21 @@
   .brow .bm { color:var(--muted); font-size:12.5px; font-weight:400; margin-left:6px; }
   .brow .bact { display:flex; gap:6px; flex-wrap:wrap; }
   .crule { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto auto; gap:6px; margin-bottom:6px; align-items:center; }
+  .lrow { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) 68px 68px auto auto auto; gap:6px; margin-bottom:6px; align-items:center; font-size:12.5px; }
+  .lrow.head { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:2px; }
+  .lrow label { display:flex; gap:4px; align-items:center; white-space:nowrap; color:var(--muted); }
+  .lrow input[type=number] { padding:7px 6px; }
+  .sug { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 10px; padding:8px 0; border-top:1px solid var(--line); align-items:center; }
+  .sug .ex { grid-column:1 / -1; color:var(--muted); font-size:12.5px; overflow-wrap:anywhere; }
   #bookDetail .card { margin-top:14px; }
   #bookDetail h3 { margin:0 0 6px; font-size:16px; }
+  .exlist { margin:4px 0 12px; max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:4px 10px; }
+  .exrow { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding:6px 0; border-top:1px solid var(--line); align-items:start; }
+  .exrow:first-child { border-top:0; }
+  .exl { font-size:13px; overflow-wrap:anywhere; }
+  .exl.old { color:var(--err); } .exl.new { color:var(--ok); }
+  .excl { display:flex; gap:8px; align-items:center; font-size:13px; margin-top:6px; }
+  .excl span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #chapDlg { width:min(720px, 94vw); }
   #chapDlg pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:60vh; overflow:auto; font:inherit; font-size:14px; line-height:1.6; margin:10px 0; }
   #bookDetail .hhead h2 { text-transform:none; font-size:18px; color:var(--text); font-weight:600; }
@@ -338,7 +351,30 @@
         </div>
         <label class="chk"><input type="checkbox" id="bkNorm" checked /><span>Chuẩn hoá văn bản (chỉ giọng VieNeu)</span></label>
         <label class="chk"><input type="checkbox" id="bkReadTitle" checked /><span>Đọc tiêu đề chương ở đầu mỗi chương</span></label>
+        <label class="chk"><input type="checkbox" id="bkDlgOn" /><span>Lời thoại (trong ngoặc kép hoặc sau gạch thoại) đọc bằng giọng thứ hai</span></label>
+        <select id="bkDlgVoice" style="margin-top:8px" disabled></select>
+        <div class="hint">Phần dẫn sau lời thoại ("– Đi đâu? – hắn hỏi.") vẫn do giọng kể đọc.</div>
         <div class="dlgbtns"><button class="btn pri" id="bkSaveSettings" type="button">Lưu cài đặt</button></div>
+      </div>
+      <div class="card">
+        <h3>Từ điển phát âm</h3>
+        <div class="hint">Áp dụng trước khi chuẩn hoá văn bản. "Đọc thành" thay chữ; "Nghỉ trước/sau" chèn [nghỉ Ns] quanh cụm (0 = không nghỉ). Dấu gạch nối (Đấu-Khí) không có tác dụng với VieNeu: nó coi gạch nối như khoảng trắng.</div>
+        <label class="lb">Của truyện này (ưu tiên hơn từ điển toàn cục)</label>
+        <div id="lexBook"></div>
+        <button class="btn" id="lexAddBook" type="button">+ Thêm mục</button>
+        <label class="lb">Toàn cục (mọi truyện)</label>
+        <div id="lexGlobal"></div>
+        <button class="btn" id="lexAddGlobal" type="button">+ Thêm mục</button>
+        <div class="dlgbtns"><button class="btn pri" id="lexSave" type="button">Lưu từ điển</button></div>
+      </div>
+      <div class="card">
+        <h3>Gợi ý tên riêng</h3>
+        <div class="hint">Quét các cụm viết hoa 2–4 tiếng lặp lại nhiều lần và không đứng đầu câu (khả năng là tên riêng hoặc thuật ngữ). Từ dừng (Anh, Hắn, Nhưng…) sửa trong <code>config/name_stopwords.txt</code>.</div>
+        <div class="mixbtns">
+          <label class="chk" style="margin:0">Xuất hiện tối thiểu <input type="number" id="sugMin" value="3" min="1" max="100" style="width:70px;margin:0 6px" /> lần</label>
+          <button class="btn pri" id="sugScan" type="button">Quét truyện</button>
+        </div>
+        <div id="sugList"></div>
       </div>
       <div class="card">
         <h3>Làm sạch văn bản</h3>
@@ -349,6 +385,8 @@
         <label class="lb">Quy tắc tuỳ chỉnh (regex → thay thế)</label>
         <div id="bkCustom"></div>
         <button class="btn" id="bkAddRule" type="button">+ Thêm quy tắc</button>
+        <label class="lb">Ngoại lệ đã giữ (quy tắc không áp dụng cho các dòng này)</label>
+        <div id="bkExc"><div class="hint">Chưa có. Bấm "Giữ dòng này" ở danh sách dòng bị ảnh hưởng trong phần xem trước.</div></div>
       </div>
       <div class="card">
         <h3>Tách chương</h3>
@@ -365,6 +403,7 @@
         </div>
         <div id="bkPreviewBox" class="hidden" style="margin-top:12px">
           <div class="hint" id="bkStats"></div>
+          <div id="bkRuleBox" style="margin-top:8px"></div>
           <div id="bkRows"></div>
           <div class="dlgbtns"><button class="btn pri" id="bkConfirm" type="button">Xác nhận tách chương</button></div>
         </div>
@@ -1281,11 +1320,12 @@ $("histClear").addEventListener("click", () => clearHistory("tts"));
 $("diaHistClear").addEventListener("click", () => clearHistory("dialogue"));
 
 // ───────────── Sách nói ─────────────
-const bk = { book: null, ops: [], clean: null, voices: [], prev: null };
+const bk = { book: null, ops: [], clean: null, voices: [], prev: null, exceptions: [], open: new Set() };
 const bkMsg = (t, cls = "") => { $("bookMsg").textContent = t; $("bookMsg").className = "msg " + cls; };
 const fmtDur = (s) => (s >= 3600 ? `${(s / 3600).toFixed(1)} giờ` : s >= 60 ? `${Math.round(s / 60)} phút` : `${s} giây`);
-const STAT_LABEL = { control_chars: "chuẩn hoá ký tự", url_lines: "dòng URL đã bỏ", credit_lines: "dòng nguồn/dịch giả đã bỏ",
-  separators: "dấu ngăn cảnh → [nghỉ]", dup_lines: "dòng trùng đã bỏ", join_lines: "dòng đã gộp", custom: "chỗ thay thế tuỳ chỉnh" };
+const STAT_LABEL = { control_chars: "dòng đã chuẩn hoá ký tự", url_lines: "dòng URL đã bỏ", credit_lines: "dòng nguồn/dịch giả đã bỏ",
+  separators: "dấu ngăn cảnh → [nghỉ]", dup_lines: "dòng trùng đã bỏ", join_lines: "dòng đã gộp", custom: "chỗ thay thế tuỳ chỉnh",
+  quotes: "dòng đã chuẩn hoá ngoặc kép", ellipsis: "dòng đã chuẩn hoá dấu ba chấm" };
 const STATUS_LABEL = { pending: "chưa tạo", running: "đang tạo", done: "đã xong", error: "lỗi" };
 
 async function loadBooks() {
@@ -1316,7 +1356,7 @@ async function openBook(id) {
     if (!bk.voices.length) bk.voices = await (await api("/api/voices")).json();
   } catch (e) { return alert(e.message); }
   const b = bk.book;
-  bk.ops = [...(b.split.ops || [])]; bk.clean = structuredClone(b.clean); bk.prev = null;
+  bk.ops = [...(b.split.ops || [])]; bk.clean = structuredClone(b.clean); bk.prev = null; bk.exceptions = structuredClone(b.exceptions || []);
   $("bookList").classList.add("hidden"); $("bookDetail").classList.remove("hidden");
   $("bookName").textContent = b.title; bkMsg("");
   $("bkTitle").value = b.title; $("bkAuthor").value = b.author || ""; $("bkSpeed").value = String(b.speed);
@@ -1326,17 +1366,25 @@ async function openBook(id) {
   sel.replaceChildren(...bk.voices.map(v => voiceOpt(mixLabel(v), v, diaKey(v))));
   if (![...sel.options].some(o => o.value === key)) sel.prepend(new Option(`${b.voice.voice} (không có trong danh sách)`, key));
   sel.value = key;
-  renderRules(); renderBookChapters();
+  const dv = b.dialogue_voice || { enabled: false, ...b.voice }, dsel = $("bkDlgVoice"), dkey = `${dv.engine}|${dv.voice}`;
+  dsel.replaceChildren(...bk.voices.map(v => voiceOpt(mixLabel(v), v, diaKey(v))));
+  if (![...dsel.options].some(o => o.value === dkey)) dsel.prepend(new Option(`${dv.voice} (không có trong danh sách)`, dkey));
+  dsel.value = dkey; $("bkDlgOn").checked = !!dv.enabled; dsel.disabled = !dv.enabled;
+  bk.lex = structuredClone(b.lexicon || []); bk.glex = [];
+  api("/api/lexicon").then(r => r.json()).then(l => { bk.glex = l; renderLexicon(); }).catch(() => {});
+  $("sugList").replaceChildren();
+  renderRules(); renderBookChapters(); renderLexicon();
   $("bkPreviewBox").classList.add("hidden");
   if (b.status !== "ready") bkPreview(); // truyện mới nhập: xem trước luôn
 }
 
 async function saveSettings() {
-  const { engine, voice } = diaSplit($("bkVoice").value);
+  const { engine, voice } = diaSplit($("bkVoice").value), dv = diaSplit($("bkDlgVoice").value);
   try {
     bk.book = { ...bk.book, ...(await (await api("/api/books/" + bk.book.id, { method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: $("bkTitle").value, author: $("bkAuthor").value, voice: { engine, voice }, speed: +$("bkSpeed").value,
-        normalize: $("bkNorm").checked, read_title: $("bkReadTitle").checked, clean: bk.clean }) })).json()) };
+        normalize: $("bkNorm").checked, read_title: $("bkReadTitle").checked, clean: bk.clean, exceptions: bk.exceptions,
+        dialogue_voice: { enabled: $("bkDlgOn").checked, engine: dv.engine, voice: dv.voice } }) })).json()) };
     $("bookName").textContent = bk.book.title;
     bkMsg("Đã lưu cài đặt.", "ok");
   } catch (e) { bkMsg(e.message, "err"); }
@@ -1354,6 +1402,7 @@ function renderRules() {
   }));
   $("bkSepPause").value = bk.clean.separator_pause;
   renderCustom();
+  renderExceptions();
 }
 
 function renderCustom() {
@@ -1368,7 +1417,44 @@ function renderCustom() {
   }));
 }
 
-const bkBody = () => ({ regex: $("bkRegex").value, mode: $("bkMode").value, ops: bk.ops, clean: bk.clean });
+const bkBody = () => ({ regex: $("bkRegex").value, mode: $("bkMode").value, ops: bk.ops, clean: bk.clean, exceptions: bk.exceptions });
+
+const ruleLabel = (name) => name === "custom" ? "Quy tắc tuỳ chỉnh" : (bk.book.rules_catalog.find(r => r.name === name)?.label || name);
+
+function renderExceptions() {
+  const box = $("bkExc");
+  if (!bk.exceptions.length) return box.replaceChildren(h("div", "hint", "Chưa có. Bấm \"Giữ dòng này\" ở danh sách dòng bị ảnh hưởng trong phần xem trước."));
+  box.replaceChildren(...bk.exceptions.map((e, i) => {
+    const line = h("span", "", `${ruleLabel(e.rule)}: ${e.line}`);
+    line.title = e.line;
+    return h("div", "excl", line, btn("✕", "Bỏ ngoại lệ (quy tắc áp dụng lại cho dòng này)", () => { bk.exceptions.splice(i, 1); renderExceptions(); bkPreview(); }));
+  }));
+}
+
+function exRow(name, ex) {
+  const before = Array.isArray(ex.before) ? ex.before : [ex.before];
+  const lines = before.map(t => h("div", "exl old", (before.length > 1 ? "Trước: " : name === "custom" || ex.after ? "Trước: " : "Bị xoá: ") + t));
+  if (ex.after) lines.push(h("div", "exl new", "Sau: " + ex.after));
+  const where = `Chương ${ex.chapter}${ex.title ? " · " + ex.title : ""}`;
+  const act = ex.key ? btn("Giữ dòng này", "Thêm vào ngoại lệ: quy tắc này không áp dụng cho dòng này nữa", () => {
+    bk.exceptions.push({ rule: name, line: ex.key });
+    renderExceptions(); bkPreview();
+  }) : h("span");
+  return h("div", "exrow", h("div", "", h("div", "hint", where), ...lines), act);
+}
+
+function renderRuleImpact() {
+  const rules = bk.prev.rules || {};
+  $("bkRuleBox").replaceChildren(...Object.entries(rules).map(([name, r]) => {
+    const shown = bk.open.has(name);
+    const head = h("div", "brow", h("div", "bt", ruleLabel(name), h("span", "bm", `${r.count.toLocaleString("vi-VN")} dòng bị ảnh hưởng`)),
+      h("div", "bact", btn(shown ? "Ẩn" : "Xem", "Liệt kê tối đa 50 dòng", () => { shown ? bk.open.delete(name) : bk.open.add(name); renderRuleImpact(); })));
+    if (!shown) return head;
+    const list = h("div", "exlist", ...r.examples.map(ex => exRow(name, ex)));
+    if (r.count > r.examples.length) list.append(h("div", "hint", `… và ${(r.count - r.examples.length).toLocaleString("vi-VN")} dòng nữa không hiện`));
+    return h("div", "", head, list);
+  }));
+}
 
 async function bkPreview() {
   try {
@@ -1387,6 +1473,7 @@ function renderPreview() {
   $("bkStats").textContent = `${p.chapters.length} chương · ${p.total_chars.toLocaleString("vi-VN")} ký tự · ~${fmtDur(Math.round(p.total_chars / 15))}` +
     (p.dropped ? ` · bỏ ${p.dropped} đoạn rỗng/quá ngắn` : "") + (stats ? ` · Làm sạch: ${stats}` : "");
   $("bkConfirm").textContent = `Xác nhận tách ${p.chapters.length} chương`;
+  renderRuleImpact();
   $("bkRows").replaceChildren(...p.chapters.map((c, k) => {
     const acts = h("div", "bact", btn("Tách…", "Tách chương này tại một dòng", () => bkSplit(c)));
     if (k + 1 < p.chapters.length) acts.prepend(btn("Gộp với chương sau", "Gộp chương này với chương kế tiếp", () => bkMerge(k)));
@@ -1428,21 +1515,90 @@ function renderBookChapters() {
   $("bkChapters").replaceChildren(...list.map(c => h("div", "brow",
     h("div", "bt", `${c.n}. ${c.title || "(không tiêu đề)"}`,
       h("span", "bm", `${c.chars.toLocaleString("vi-VN")} ký tự · ~${fmtDur(c.est_seconds)} · ${STATUS_LABEL[c.status] || c.status}`)),
-    h("div", "bact", btn("▶", "Nghe thử đầu chương", (b) => playChapter(c.n, b)), btn("Xem", "Xem văn bản đã làm sạch", () => viewChapter(c.n))))));
+    h("div", "bact", btn("▶", "Nghe thử đầu chương (~300 ký tự)", (b) => playChapter(c.n, b)),
+      btn("Đọc thử 1 phút", "Đọc ~900 ký tự từ đầu chương bằng giọng + từ điển + giọng lời thoại", (b) => playChapter(c.n, b, 900, 0)),
+      btn("…giữa chương", "Đọc thử ~1 phút bắt đầu từ giữa chương (nơi hay có lời thoại và tên riêng)", (b) => playChapter(c.n, b, 900, 0.5)),
+      btn("Xem", "Xem văn bản đã làm sạch", () => viewChapter(c.n))))));
 }
 
-async function playChapter(n, b) {
+async function playChapter(n, b, chars = 300, offset = 0) {
   player?.pause();
   const old = b.textContent;
   b.disabled = true; b.textContent = "…";
+  bkMsg(chars > 300 ? "Đang tạo bản đọc thử, có thể mất vài chục giây…" : "");
   try {
-    const blob = await (await api(`/api/books/${bk.book.id}/chapters/${n}/sample`)).blob();
-    player = new Audio(URL.createObjectURL(blob));
+    const res = await api(`/api/books/${bk.book.id}/chapters/${n}/sample?chars=${chars}&offset=${offset}`);
+    const secs = res.headers.get("X-Sample-Seconds");
+    player = new Audio(URL.createObjectURL(await res.blob()));
     await player.play();
-    bkMsg("");
+    bkMsg(chars > 300 ? `Đang phát bản đọc thử ${secs} giây (chương ${n}).` : "", "ok");
   } catch (e) { bkMsg(e.message, "err"); }
   finally { b.disabled = false; b.textContent = old; }
 }
+
+// ── từ điển phát âm ──
+const newEntry = (match = "") => ({ match, replace: "", pause_before: 0, pause_after: 0, whole_word: true, case_sensitive: false });
+
+function lexRows(list, box) {
+  const head = h("div", "lrow head", h("span", "", "Cụm"), h("span", "", "Đọc thành"), h("span", "", "Nghỉ trước"), h("span", "", "Nghỉ sau"), h("span"), h("span"), h("span"));
+  box.replaceChildren(...(list.length ? [head] : []), ...list.map((e, i) => {
+    const txt = (key, ph) => { const x = document.createElement("input"); x.type = "text"; x.placeholder = ph; x.value = e[key]; x.addEventListener("input", () => { e[key] = x.value; }); return x; };
+    const num = (key) => { const x = document.createElement("input"); x.type = "number"; x.min = 0; x.max = 5; x.step = 0.1; x.value = e[key]; x.title = "giây (0 = không nghỉ)"; x.addEventListener("input", () => { e[key] = +x.value || 0; }); return x; };
+    const chk = (key, label, title) => { const x = document.createElement("input"); x.type = "checkbox"; x.checked = e[key]; x.addEventListener("change", () => { e[key] = x.checked; }); const l = h("label", "", x, label); l.title = title; return l; };
+    return h("div", "lrow", txt("match", "vd. Đấu Khí"), txt("replace", "(giữ nguyên)"), num("pause_before"), num("pause_after"),
+      chk("whole_word", "Nguyên từ", "Chỉ khớp cả từ, không khớp một phần của từ khác"), chk("case_sensitive", "Hoa/thường", "Phân biệt chữ hoa và chữ thường"),
+      btn("✕", "Xoá mục", () => { list.splice(i, 1); renderLexicon(); }));
+  }));
+}
+
+function renderLexicon() { lexRows(bk.lex, $("lexBook")); lexRows(bk.glex, $("lexGlobal")); }
+
+async function saveLexicon(quiet = false) {
+  try {
+    const put = (url, method, body) => api(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
+    bk.lex = (await put("/api/books/" + bk.book.id, "PATCH", { lexicon: bk.lex.filter(e => e.match.trim()) })).lexicon;
+    bk.glex = await put("/api/lexicon", "PUT", bk.glex.filter(e => e.match.trim()));
+    renderLexicon();
+    if (!quiet) bkMsg("Đã lưu từ điển.", "ok");
+    return true;
+  } catch (e) { bkMsg(e.message, "err"); return false; }
+}
+
+async function scanTerms() {
+  const btn0 = $("sugScan");
+  btn0.disabled = true; btn0.textContent = "Đang quét…";
+  try {
+    const d = await (await api(`/api/books/${bk.book.id}/suggest?min_count=${+$("sugMin").value || 3}`)).json();
+    $("sugList").replaceChildren(...(d.terms.length ? d.terms : [{ none: true }]).map(t => t.none ? h("div", "hint", "Không có cụm nào đạt ngưỡng.") : sugRow(t)));
+    bkMsg(`Tìm thấy ${d.terms.length} cụm.`, "ok");
+  } catch (e) { bkMsg(e.message, "err"); }
+  finally { btn0.disabled = false; btn0.textContent = "Quét truyện"; }
+}
+
+function sugRow(t) {
+  const row = h("div", "sug", h("div", "bt", t.phrase, h("span", "bm", `${t.count.toLocaleString("vi-VN")} lần · chương ${t.chapter}`)),
+    h("div", "bact",
+      btn("▶ Nghe thử", "Đọc câu ví dụ bằng giọng của truyện (có áp dụng từ điển hiện có)", async (b) => {
+        const old = b.textContent; b.disabled = true; b.textContent = "…";
+        try {
+          const blob = await (await api(`/api/books/${bk.book.id}/speak`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t.example }) })).blob();
+          player?.pause(); player = new Audio(URL.createObjectURL(blob)); await player.play();
+        } catch (e) { bkMsg(e.message, "err"); } finally { b.disabled = false; b.textContent = old; }
+      }),
+      btn("+ Thêm vào từ điển", "Thêm vào từ điển của truyện (nghỉ trước 0.2 giây; chỉnh lại ở bảng từ điển)", async () => {
+        bk.lex.push({ ...newEntry(t.phrase), pause_before: 0.2, case_sensitive: true });
+        if (await saveLexicon(true)) { row.remove(); bkMsg(`Đã thêm "${t.phrase}" vào từ điển của truyện.`, "ok"); }
+        else bk.lex.pop();
+      })),
+    h("div", "ex", t.example));
+  return row;
+}
+
+$("bkDlgOn").addEventListener("change", () => { $("bkDlgVoice").disabled = !$("bkDlgOn").checked; });
+$("lexAddBook").addEventListener("click", () => { bk.lex.push(newEntry()); renderLexicon(); });
+$("lexAddGlobal").addEventListener("click", () => { bk.glex.push(newEntry()); renderLexicon(); });
+$("lexSave").addEventListener("click", () => saveLexicon());
+$("sugScan").addEventListener("click", scanTerms);
 
 async function viewChapter(n) {
   try {
