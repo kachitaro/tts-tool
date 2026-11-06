@@ -185,6 +185,19 @@ def favorite(engine: str = Form(...), voice: str = Form(...), favorite: bool = F
     return {"engine": engine, "voice": voice, "favorite": favorite}
 
 
+async def voice_label(e, voice: str) -> str:
+    """Tên hiển thị của giọng để lưu vào lịch sử (giọng bị xoá sau này vẫn còn tên)."""
+    try:
+        if voice.startswith(library.LIB_PREFIX):
+            return library.get(voice[len(library.LIB_PREFIX):])["name"]
+        for v in await e.voices():
+            if v["id"] == voice:
+                return v.get("name") or v["label"]
+    except Exception:  # chỉ là nhãn: không làm hỏng việc tạo audio
+        pass
+    return voice
+
+
 @app.post("/api/tts")
 async def tts(
     text: str = Form(""),
@@ -234,8 +247,8 @@ async def tts(
     headers = {"Content-Disposition": f'attachment; filename="giong-noi.{ext}"', **warning_headers(warnings)}
     try:  # lịch sử chỉ là tiện ích: lỗi ghi đĩa không được làm hỏng bản vừa tạo
         headers["X-History-Id"] = history.save("tts", {
-            "text": text, "engine": e.id, "voice": voice, "speed": speed, "pitch": pitch, "normalize": normalize,
-            "cloned_ref": bool(tmp_path),
+            "text": text, "engine": e.id, "voice": voice, "voice_label": await voice_label(e, voice) if voice else "",
+            "speed": speed, "pitch": pitch, "normalize": normalize, "cloned_ref": bool(tmp_path),
         }, data, ext)
     except OSError as ex:
         log.warning("Không lưu được lịch sử: %s", ex)
@@ -450,12 +463,14 @@ async def dialogue_create(req: DialogueIn):
     missing = [n for n in names if not (cast.get(n) or {}).get("engine") or not (cast.get(n) or {}).get("voice")]
     if missing:
         return JSONResponse({"error": "Chưa gán giọng cho: " + ", ".join(missing), "missing": missing}, status_code=400)
-    resolved = {}
+    resolved, labels = {}, {}
     for n in names:
         e = get_engine(cast[n]["engine"])
         check_lib_voice(e, cast[n]["voice"])
         resolved[n] = (e, cast[n]["voice"])
-    meta = {"script": req.script, "cast": {n: cast[n] for n in names}, "speed": req.speed, "gap_ms": req.gap_ms,
+        labels[n] = await voice_label(e, cast[n]["voice"])
+    meta = {"script": req.script, "cast": {n: {**cast[n], "label": labels[n]} for n in names}, "speed": req.speed,
+            "gap_ms": req.gap_ms,
             "paragraph_gap_ms": req.paragraph_gap_ms, "normalize": req.normalize}
     job = dialogue.create_job(lines, resolved, max(-50, min(200, req.speed)),
                               max(0, min(5000, req.gap_ms)), max(0, min(10000, req.paragraph_gap_ms)),
@@ -534,7 +549,11 @@ def projects_delete(project_id: str):
 
 @app.get("/api/history")
 def history_list(kind: str = ""):
-    return history.list_items(kind or None)
+    items = history.list_items(kind or None)
+    for m in items:  # giọng thư viện đã bị xoá thì UI ghi "(đã xoá)"
+        v = m.get("voice") or ""
+        m["voice_deleted"] = v.startswith(library.LIB_PREFIX) and not (library.VOICES / v[len(library.LIB_PREFIX):] / "meta.json").is_file()
+    return items
 
 
 @app.get("/api/history/{item_id}/audio")

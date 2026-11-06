@@ -123,6 +123,37 @@ echo "== dọn dẹp thư viện"
 check "xoá giọng mix" expect_status 200 -X DELETE "$B/api/library/${MIX#lib:}"
 check "xoá giọng clone" expect_status 200 -X DELETE "$B/api/library/${LIB#lib:}"
 check "giọng đã xoá → 404" expect_status 404 "$B/api/library/${LIB#lib:}/preview"
+check "lịch sử giữ tên giọng đã xoá (voice_label + voice_deleted)" bash -c "curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; m=[x for x in json.load(sys.stdin) if x.get('voice')=='$LIB']; assert m and m[0]['voice_label'] and m[0]['voice_deleted'] is True, m\""
+
+echo "== giới hạn: lịch sử 50 bản, LRU cache (module trực tiếp, data tạm riêng)"
+check "lịch sử giữ đúng 50 bản mới nhất" env TTS_DATA_DIR="$WORK/hist" $PY - <<'PYEOF'
+import history
+for i in range(55):
+    history.save("tts", {"text": f"t{i}"}, b"a", "wav")
+items = history.list_items()
+assert len(items) == 50, len(items)
+assert items[0]["text"] == "t54" and items[-1]["text"] == "t5", (items[0]["text"], items[-1]["text"])
+assert len(list(history.HISTORY.glob("*.wav"))) == 50  # audio của bản bị cắt cũng được xoá
+PYEOF
+check "LRU cache (TTS_CACHE_MB nhỏ): xoá cũ nhất, giữ bản vừa dùng + dòng của job sống, cảnh báo khi vẫn vượt" env TTS_CACHE_MB=0.003 TTS_DATA_DIR="$WORK/lru" $PY - <<'PYEOF'
+import logging, os
+import dialogue
+c = dialogue.CACHE
+c.mkdir(parents=True)
+for i in range(5):                                   # 5 file x 1000 B, mtime tăng dần; limit = 0.003 MB ≈ 3145 B
+    f = c / f"k{i}.wav"; f.write_bytes(b"x" * 1000); os.utime(f, (1000 + i, 1000 + i))
+job = dialogue.Job("j1", [], {}, 0, 0, 0); job.keys = ["k0"]; dialogue.JOBS["j1"] = job   # k0 thuộc job đang sống
+os.utime(c / "k2.wav", (5000, 5000))                  # k2 vừa được dùng (cache hit → touch)
+dialogue.prune_cache()                                # dùng giới hạn từ TTS_CACHE_MB
+left = sorted(p.name for p in c.glob("*.wav"))
+assert "k1.wav" not in left and "k0.wav" in left and "k2.wav" in left, left
+records = []
+class H(logging.Handler):
+    def emit(self, r): records.append(r.getMessage())
+dialogue.log.addHandler(H())
+dialogue.prune_cache(limit=500)                       # k0 (job sống) vẫn nằm đó và đã vượt 500 B → phải cảnh báo
+assert any("vượt TTS_CACHE_MB" in m for m in records), records
+PYEOF
 
 echo
 echo "Kết quả: $PASS PASS, $FAIL FAIL"

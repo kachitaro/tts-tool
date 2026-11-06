@@ -423,20 +423,27 @@ function renderEngines() {
 }
 
 // Thanh nút chèn thẻ cảm xúc dùng chung cho ô văn bản (tab Đọc) và ô kịch bản (tab Hội thoại).
-function emotionBar(box, ta, tags) {
+// longPause: ở tab Đọc là xuống dòng (VieNeu tách thành đoạn mới, nghỉ ≥ 0.7 s); ở tab Hội thoại là dòng trống
+// (khoảng nghỉ paragraph_gap_ms do server chèn, đúng với mọi engine).
+function emotionBar(box, ta, tags, longPause = "\n") {
   box.replaceChildren();
-  box.classList.toggle("hidden", !tags.length);
-  for (const tag of tags) {
+  box.classList.remove("hidden");
+  const add = (label, text, title) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.textContent = tag;
+    b.textContent = label;
+    if (title) b.title = title;
     b.addEventListener("click", () => {
-      ta.setRangeText(tag, ta.selectionStart, ta.selectionEnd, "end");
+      const next = ta.value[ta.selectionEnd] ?? "";
+      ta.setRangeText(text.endsWith(" ") && /\s/.test(next) ? text.trimEnd() : text, ta.selectionStart, ta.selectionEnd, "end");
       ta.focus();
       ta.dispatchEvent(new Event("input")); // cập nhật bộ đếm / parse kịch bản
     });
     box.append(b);
-  }
+  };
+  for (const tag of tags) add(tag, tag);
+  add("Nghỉ ngắn", ", ", "Chèn dấu phẩy");
+  add("Nghỉ dài", longPause, longPause === "\n" ? "Chèn xuống dòng (nghỉ dài hơn)" : "Chèn dòng trống (nghỉ dài hơn)");
 }
 const renderEmotionTags = (tags) => emotionBar($("emoBox"), $("text"), tags);
 const allEmotionTags = () => [...new Set(Object.values(state.engines).filter(e => e.available).flatMap(e => e.capabilities.emotion_tags || []))];
@@ -494,7 +501,7 @@ const fmtTime = (iso) => new Date(iso).toLocaleString("vi-VN", { hour12: false, 
 function histTitle(m) {
   if (m.kind === "dialogue") return `Hội thoại · ${m.lines} dòng · ${m.seconds}s`;
   const v = state.voices[m.engine]?.find(x => x.id === m.voice);
-  const who = m.cloned_ref ? "giọng nhân bản" : v ? v.name || v.label : m.voice || "mặc định";
+  const who = m.cloned_ref ? "giọng nhân bản" : (m.voice_label || (v ? v.name || v.label : m.voice) || "mặc định") + (m.voice_deleted ? " (đã xoá)" : "");
   return `${state.engines[m.engine]?.label || m.engine} · ${who}`;
 }
 
@@ -935,7 +942,7 @@ const nameGender = (name) => {
 
 async function loadDia() {
   loadProjects();
-  emotionBar($("diaEmo"), $("diaScript"), allEmotionTags());
+  emotionBar($("diaEmo"), $("diaScript"), allEmotionTags(), "\n\n");
   loadHistory("dialogue");
   if (!dia.voices.length) {
     diaMsg("Đang tải danh sách giọng…");

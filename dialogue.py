@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -40,6 +41,7 @@ CACHE_MAX_BYTES = int(float(os.getenv("TTS_CACHE_MB", "1024")) * 1024 * 1024)
 TARGET_RMS = 0.12        # RMS của phần có tiếng; đưa mọi dòng về cùng mức để edge và VieNeu không chênh âm lượng
 MAX_PEAK = 0.95
 CACHE = library.DATA / "cache"
+log = logging.getLogger("tts.dialogue")
 PROJECTS = library.DATA / "projects"
 
 
@@ -240,6 +242,9 @@ def prune_cache(limit: int | None = None) -> int:
         size = f.stat().st_size
         f.unlink(missing_ok=True)
         freed += size
+    if total - freed > limit:  # phần còn lại là dòng của job đang sống + thư mục kết quả: không xoá được
+        log.warning("data/cache/ dùng %.1f MB, vượt TTS_CACHE_MB (%.1f MB): dòng của các job đang sống được giữ lại "
+                    "cho tới khi job bị dọn (sau 1 giờ).", (total - freed) / 2**20, limit / 2**20)
     return freed
 
 
