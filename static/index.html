@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Giọng Việt — Text to Speech</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel-2: #1e222b; --line: #2a2f3a;
+    --text: #e8eaf0; --muted: #8b93a7; --accent: #7c6cff; --accent-2: #5b4ee0;
+    --ok: #3ecf8e; --err: #ff6b6b; --warn: #e0a800; --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f5f6fa; --panel:#fff; --panel-2:#f0f1f6; --line:#e2e4ec; --text:#171a21; --muted:#6b7285; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 20px 60px; }
+  header { display:flex; align-items:baseline; gap:12px; margin-bottom: 24px; }
+  h1 { font-size: 22px; margin:0; letter-spacing:-.01em; }
+  header span { color: var(--muted); font-size: 14px; }
+  .grid { display:grid; grid-template-columns: minmax(0,1fr) 320px; gap: 20px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: minmax(0,1fr); } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:18px; }
+  textarea { width:100%; min-height: 300px; resize: vertical; background:transparent; color:var(--text);
+             border:none; outline:none; font: inherit; font-size:16px; line-height:1.65; }
+  .bar { display:flex; justify-content:space-between; align-items:center; margin-top:10px;
+         padding-top:12px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+  label.lb { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.06em;
+             color:var(--muted); margin: 16px 0 8px; }
+  aside > label.lb:first-child { margin-top: 0; }
+  .seg { display:grid; grid-template-columns:repeat(auto-fit,minmax(0,1fr)); background:var(--panel-2); border-radius:10px; padding:4px; gap:4px; }
+  .seg button { border:0; background:transparent; color:var(--muted); padding:9px 6px; border-radius:7px;
+                cursor:pointer; font:inherit; font-size:13.5px; line-height:1.25; }
+  .seg button small { display:block; font-size:11.5px; opacity:.8; }
+  .seg button.on { background:var(--panel); color:var(--text); box-shadow:0 1px 3px rgba(0,0,0,.25); }
+  .seg button:disabled { opacity:.4; cursor:not-allowed; }
+  select, input[type=text] { width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+           border-radius:9px; padding:9px 10px; font:inherit; }
+  .range { display:flex; align-items:center; gap:10px; }
+  .range input { flex:1; accent-color: var(--accent); }
+  .range output { width:52px; text-align:right; font-variant-numeric: tabular-nums; color:var(--muted); font-size:13px; }
+  .drop { display:block; border:1.5px dashed var(--line); border-radius:10px; padding:14px; text-align:center; color:var(--muted);
+          font-size:13px; cursor:pointer; }
+  .drop.has { border-style:solid; border-color:var(--accent); color:var(--text); }
+  .drop input { display:none; }
+  .hint { color:var(--muted); font-size:12.5px; margin-top:6px; }
+  .go { width:100%; margin-top:18px; padding:12px; border:0; border-radius:10px; cursor:pointer;
+        background:var(--accent); color:#fff; font:inherit; font-weight:600; font-size:15px; }
+  .go:hover { background:var(--accent-2); }
+  .go:disabled { opacity:.6; cursor:progress; }
+  .msg { margin-top:10px; font-size:13px; min-height: 1em; }
+  .msg.err { color: var(--err); } .msg.ok { color: var(--ok); } .msg.warn { color: var(--warn); }
+  .hidden { display:none !important; }
+  .history { margin-top: 20px; }
+  .history h2 { font-size: 14px; color: var(--muted); font-weight:500; margin: 0 0 10px; }
+  .item { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+  .item .meta { display:flex; justify-content:space-between; gap:10px; font-size:12.5px; color:var(--muted); margin-bottom:8px; }
+  .item .txt { font-size:13.5px; margin-bottom:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item audio { width:100%; height: 36px; }
+  .item a { color: var(--accent); text-decoration:none; }
+  .spin { display:inline-block; width:14px; height:14px; border:2px solid #fff6; border-top-color:#fff;
+          border-radius:50%; animation: s .7s linear infinite; vertical-align:-2px; margin-right:6px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  kbd { font: 11px ui-monospace, monospace; border:1px solid var(--line); border-radius:4px; padding:1px 4px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .chips button { background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:999px;
+                  padding:3px 11px; font:inherit; font-size:12.5px; cursor:pointer; }
+  .chips button:hover { border-color:var(--accent); }
+  .tabs { display:flex; gap:4px; margin-bottom:20px; border-bottom:1px solid var(--line); overflow-x:auto; scrollbar-width:none; }
+  .tabs button { white-space:nowrap; }
+  .tabs button { background:none; border:0; border-bottom:2px solid transparent; color:var(--muted); padding:8px 14px;
+                 font:inherit; cursor:pointer; margin-bottom:-1px; }
+  .tabs button.on { color:var(--text); border-bottom-color:var(--accent); }
+  .toolbar { display:grid; grid-template-columns: minmax(0,1fr) 150px 150px 170px auto; gap:10px; margin-bottom:14px; }
+  @media (max-width: 820px) { .toolbar { grid-template-columns: 1fr 1fr; } .toolbar input { grid-column: 1 / -1; } }
+  .vgrid { display:grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap:14px; }
+  .vcard { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:8px; min-width:0; }
+  .vtop { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .vname { font-weight:600; overflow-wrap:anywhere; }
+  .vmeta { color:var(--muted); font-size:12.5px; }
+  .vdesc { font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
+  .vtags { display:flex; flex-wrap:wrap; gap:5px; }
+  .vtags span { background:var(--panel-2); border-radius:999px; padding:1px 9px; font-size:12px; color:var(--muted); }
+  .badge { background:var(--accent); color:#fff; border-radius:6px; padding:0 6px; font-size:11px; font-weight:600; margin-left:6px; vertical-align:1px; }
+  .vcard.dim { opacity:.55; }
+  .hhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .hhead h2 { margin:0 !important; }
+  .hact { display:flex; gap:6px; margin-top:8px; }
+  .warn-ic { color:var(--warn); cursor:help; }
+  input[type=number] { width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:9px; padding:9px 10px; font:inherit; }
+  .crow { display:grid; grid-template-columns:72px 1fr; gap:8px; align-items:center; margin-bottom:8px; }
+  .crow b { overflow-wrap:anywhere; }
+  .dline { display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; gap:8px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
+  .dline .who { font-weight:600; color:var(--accent); }
+  .dline .dtext { font-size:13.5px; overflow-wrap:anywhere; }
+  .dline .dact { display:flex; gap:6px; }
+  .dline .dtext small { display:block; color:var(--err); }
+  .mixgrid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width: 820px) { .mixgrid { grid-template-columns:1fr; } }
+  .mixrow { display:flex; gap:8px; margin-top:8px; }
+  .mixrow select { flex:1; }
+  .mixslider { display:grid; grid-template-columns:minmax(0,1fr) minmax(160px,2fr) minmax(0,1fr); align-items:center; gap:12px; margin-top:24px; }
+  .mixslider input { accent-color:var(--accent); width:100%; }
+  .mixend { font-size:13px; overflow-wrap:anywhere; }
+  .mixend:last-child { text-align:right; }
+  .mixbtns { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:14px; }
+  .mixbtns .chk { margin-top:0; }
+  .mixaudio { width:100%; margin-top:12px; }
+  .vact { display:flex; gap:6px; margin-top:auto; padding-top:4px; }
+  .btn { background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 10px;
+         font:inherit; font-size:13px; cursor:pointer; }
+  .btn:hover { border-color:var(--accent); }
+  .btn:disabled { opacity:.6; cursor:progress; }
+  .btn.pri { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .btn.pri:hover { background:var(--accent-2); }
+  .btn.fav { border:0; background:none; padding:0 2px; font-size:18px; line-height:1; color:var(--muted); }
+  .btn.fav.on { color:var(--err); }
+  .vact .pri { flex:1; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:var(--radius);
+           padding:20px; width:min(460px, 92vw); }
+  dialog::backdrop { background:rgba(0,0,0,.55); }
+  dialog h3 { margin:0 0 4px; font-size:17px; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .recrow { display:flex; align-items:center; gap:10px; margin-top:8px; font-size:13px; color:var(--muted); }
+  .chk { display:flex; gap:8px; align-items:flex-start; margin-top:14px; font-size:13.5px; cursor:pointer; }
+  .chk input { margin-top:3px; accent-color:var(--accent); }
+  .dlgbtns { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  /* Điện thoại / máy tính bảng: ô soạn → cài đặt (nút tạo audio) → kết quả → lịch sử */
+  @media (max-width: 820px) {
+    .grid > div:first-child { display:contents; }
+    .grid > div:first-child > :first-child { order:1; }
+    .grid > aside { order:2; }
+    .grid > div:first-child > :nth-child(n+2) { order:3; margin-top:0 !important; }
+    .wrap { padding:20px 14px 48px; }
+    textarea { min-height:200px; }
+  }
+  @media (max-width: 520px) {
+    header { flex-wrap:wrap; gap:2px 10px; }
+    .tabs { gap:0; }
+    .tabs button { padding:8px 6px; font-size:13px; }
+    .toolbar { grid-template-columns:1fr 1fr; }
+    .mixslider { grid-template-columns:1fr 1fr; gap:6px 12px; margin-top:18px; }
+    .mixslider input { grid-column:1 / -1; grid-row:2; }
+    .dline { grid-template-columns:auto minmax(0,1fr) auto; }
+    .dline .dtext { grid-column:1 / -1; order:5; }
+    .dline .dact { order:3; }
+    .item .meta { flex-wrap:wrap; }
+    dialog { padding:16px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Giọng Việt</h1><span>Chuyển văn bản thành giọng nói</span></header>
+  <nav class="tabs">
+    <button data-tab="tts" class="on">Đọc văn bản</button>
+    <button data-tab="lib">Thư viện giọng</button>
+    <button data-tab="mix">Tạo giọng mới</button>
+    <button data-tab="dia">Hội thoại</button>
+  </nav>
+
+  <div id="tab-tts">
+  <div class="grid">
+    <div>
+      <div class="card">
+        <textarea id="text" placeholder="Nhập hoặc dán văn bản cần đọc…">Xin chào! Đây là công cụ chuyển văn bản thành giọng nói tiếng Việt, chạy ngay trên máy của bạn.</textarea>
+        <div class="chips hidden" id="emoBox"></div>
+        <div class="bar"><span id="count">0 ký tự</span><span><kbd>Ctrl</kbd> + <kbd>Enter</kbd> để đọc</span></div>
+      </div>
+      <div class="history" id="historyBox">
+        <div class="hhead"><h2>Lịch sử</h2><button type="button" class="btn" id="histClear">Xoá tất cả</button></div>
+        <div id="history"></div>
+      </div>
+    </div>
+
+    <aside class="card">
+      <label class="lb">Engine</label>
+      <div class="seg" id="engineSeg"></div>
+
+      <label class="lb">Giọng đọc</label>
+      <select id="voice"><option>Đang tải…</option></select>
+      <div class="hint" id="voiceHint"></div>
+
+      <label class="lb">Tốc độ</label>
+      <select id="speed"><option value="0">1x</option><option value="100">2x</option><option value="200">3x</option></select>
+
+      <div id="pitchBox">
+        <label class="lb">Cao độ</label>
+        <div class="range"><input type="range" id="pitch" min="-50" max="50" step="5" value="0" /><output id="pitchOut">0 Hz</output></div>
+      </div>
+
+      <div id="normBox" class="hidden">
+        <label class="chk"><input type="checkbox" id="norm" checked /><span>Chuẩn hoá văn bản (số, ngày, đơn vị…)</span></label>
+      </div>
+
+      <div id="cloneBox" class="hidden">
+        <label class="lb">Nhân bản giọng (tuỳ chọn)</label>
+        <label class="drop" id="drop">
+          <input type="file" id="ref" accept="audio/*" />
+          <span id="dropTxt">Chọn file audio mẫu 3–8 giây<br/>(wav/mp3, giọng rõ, ít tạp âm)</span>
+        </label>
+        <div class="hint">Khi có file mẫu, giọng đọc ở trên sẽ được bỏ qua. Muốn dùng lại giọng này về sau, hãy thêm vào Thư viện giọng.</div>
+      </div>
+
+      <button class="go" id="go">Đọc văn bản</button>
+      <div class="msg" id="msg"></div>
+    </aside>
+  </div>
+  </div>
+
+  <section id="tab-dia" class="hidden">
+    <div class="grid">
+      <div>
+        <div class="card">
+          <textarea id="diaScript" spellcheck="false" placeholder="[Tên]: lời thoại…">[Lan]: Chào anh, hôm nay anh khoẻ không?
+[Minh]: Anh khoẻ, cảm ơn em [cười].
+
+[Lan]: Vậy thì tốt quá, mình đi dạo nhé.</textarea>
+          <div class="chips hidden" id="diaEmo"></div>
+          <div class="bar"><span id="diaCount">0 dòng</span><span>Dòng trống = nghỉ dài hơn</span></div>
+          <div class="msg" id="diaParseMsg"></div>
+          <div class="msg warn" id="diaWarn"></div>
+        </div>
+        <div class="card hidden" id="diaResult" style="margin-top:20px">
+          <progress id="diaProg" max="1" value="0" style="width:100%"></progress>
+          <div class="hint" id="diaProgTxt"></div>
+          <div id="diaOut" class="hidden">
+            <audio id="diaAudio" class="mixaudio" controls></audio>
+            <div class="hint"><a id="diaWav" href="#">Tải WAV</a> <a id="diaMp3" href="#" class="hidden">· Tải MP3</a></div>
+          </div>
+          <div id="diaLines" style="margin-top:12px"></div>
+        </div>
+        <div class="history" style="margin-top:20px">
+          <div class="hhead"><h2>Lịch sử hội thoại</h2><button type="button" class="btn" id="diaHistClear">Xoá tất cả</button></div>
+          <div id="diaHistory"></div>
+        </div>
+      </div>
+      <aside class="card">
+        <label class="lb">Diễn viên</label>
+        <div id="diaCast"><div class="hint">Chưa có người nói nào.</div></div>
+        <label class="lb">Tốc độ</label>
+        <select id="diaSpeed"><option value="0">1x</option><option value="100">2x</option><option value="200">3x</option></select>
+        <div class="row2">
+          <div><label class="lb">Nghỉ giữa dòng (ms)</label><input type="number" id="diaGap" value="350" min="0" max="5000" /></div>
+          <div><label class="lb">Nghỉ giữa đoạn (ms)</label><input type="number" id="diaGapP" value="800" min="0" max="10000" /></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="diaNorm" checked /><span>Chuẩn hoá văn bản (chỉ giọng VieNeu)</span></label>
+        <button class="go" id="diaGo">Tạo audio</button>
+        <div class="msg" id="diaMsg"></div>
+        <label class="lb">Dự án</label>
+        <select id="diaProjects"><option value="">— chưa có dự án —</option></select>
+        <div class="row2" style="margin-top:8px"><button type="button" class="btn" id="diaOpen">Mở</button><button type="button" class="btn" id="diaDelProj">Xoá</button></div>
+        <input type="text" id="diaProjName" placeholder="Tên dự án để lưu" style="margin-top:8px" />
+        <button type="button" class="btn" id="diaSave" style="margin-top:8px;width:100%">Lưu dự án</button>
+      </aside>
+    </div>
+  </section>
+
+  <section id="tab-mix" class="hidden">
+    <div class="card">
+      <div class="mixgrid">
+        <div>
+          <label class="lb">Giọng A</label>
+          <input type="text" id="mixQA" placeholder="Tìm giọng A…" />
+          <div class="mixrow"><select id="mixA"></select><button type="button" class="btn" id="mixPlayA" title="Nghe giọng A">▶</button></div>
+        </div>
+        <div>
+          <label class="lb">Giọng B</label>
+          <input type="text" id="mixQB" placeholder="Tìm giọng B…" />
+          <div class="mixrow"><select id="mixB"></select><button type="button" class="btn" id="mixPlayB" title="Nghe giọng B">▶</button></div>
+        </div>
+      </div>
+      <div class="mixslider">
+        <span class="mixend" id="mixLblB"></span>
+        <input type="range" id="mixSlider" min="0" max="1" step="0.01" value="0.5" />
+        <span class="mixend" id="mixLblA"></span>
+      </div>
+      <div class="hint" id="mixPct" style="text-align:center"></div>
+      <label class="lb">Câu thử</label>
+      <input type="text" id="mixText" />
+      <div class="mixbtns">
+        <button type="button" class="btn pri" id="mixPreview">Nghe thử</button>
+        <label class="chk"><input type="checkbox" id="mixAuto" checked /><span>Tự nghe thử khi thả thanh trượt</span></label>
+        <button type="button" class="btn" id="mixSave">Lưu vào thư viện</button>
+      </div>
+      <div class="msg" id="mixMsg"></div>
+      <audio id="mixAudio" class="mixaudio" controls></audio>
+    </div>
+  </section>
+
+  <section id="tab-lib" class="hidden">
+    <div class="toolbar">
+      <input type="text" id="libQ" placeholder="Tìm theo tên, thẻ, mô tả…" />
+      <select id="libGender"><option value="">Mọi giới tính</option><option value="nam">Nam</option><option value="nữ">Nữ</option></select>
+      <select id="libRegion"><option value="">Mọi vùng miền</option><option value="bac">Bắc</option><option value="trung">Trung</option><option value="nam">Nam</option></select>
+      <select id="libScope"><option value="">Tất cả giọng</option><option value="fav">Yêu thích</option><option value="mine">Giọng của tôi</option><option value="preset">Giọng dựng sẵn</option></select>
+      <button class="btn pri" id="libAdd" type="button">+ Thêm giọng</button>
+    </div>
+    <div class="msg" id="libMsg"></div>
+    <div class="vgrid" id="libGrid"></div>
+  </section>
+
+  <dialog id="dlg">
+    <form id="dlgForm" method="dialog">
+      <h3 id="dlgTitle">Thêm giọng</h3>
+      <label class="lb">Tên giọng</label>
+      <input type="text" id="fName" maxlength="60" />
+      <div id="fCreateOnly">
+        <label class="lb">Engine</label>
+        <select id="fEngine"></select>
+        <label class="lb">Audio mẫu (3–10 giây là tốt nhất)</label>
+        <label class="drop" id="fDrop">
+          <input type="file" id="fFile" accept="audio/*" />
+          <span id="fDropTxt">Kéo thả file vào đây hoặc bấm để chọn<br/>(wav/mp3, giọng rõ, ít tạp âm)</span>
+        </label>
+        <div class="recrow"><button type="button" class="btn" id="fRec">● Ghi âm</button><span id="fRecTime"></span></div>
+        <div class="hint" id="fInfo"></div>
+      </div>
+      <div class="row2">
+        <div><label class="lb">Giới tính</label>
+          <select id="fGender"><option value="">Không rõ</option><option value="nam">Nam</option><option value="nữ">Nữ</option></select></div>
+        <div><label class="lb">Vùng miền</label>
+          <select id="fRegion"><option value="">Không rõ</option><option value="bac">Bắc</option><option value="trung">Trung</option><option value="nam">Nam</option></select></div>
+      </div>
+      <label class="lb">Thẻ (cách nhau bằng dấu phẩy)</label>
+      <input type="text" id="fTags" placeholder="ví dụ: kể chuyện, ấm áp" />
+      <label class="lb">Mô tả</label>
+      <input type="text" id="fDesc" maxlength="300" />
+      <label class="chk" id="fConsentBox"><input type="checkbox" id="fConsent" /><span>Tôi là chủ giọng nói này hoặc đã được người đó đồng ý</span></label>
+      <div class="msg err" id="fErr"></div>
+      <div class="dlgbtns">
+        <button type="button" class="btn" id="fCancel">Huỷ</button>
+        <button type="submit" class="btn pri" id="fSave">Lưu giọng</button>
+      </div>
+    </form>
+  </dialog>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { engine: "edge", engines: {}, voices: {} };
+
+const fmtPitch = (v) => (v > 0 ? "+" : "") + v + " Hz";
+const setMsg = (t, cls = "") => { $("msg").textContent = t; $("msg").className = "msg " + cls; };
+
+function updateCount() { $("count").textContent = $("text").value.length.toLocaleString("vi-VN") + " ký tự"; }
+
+async function api(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) {
+    let err = res.statusText;
+    try { err = (await res.json()).error || err; } catch {}
+    throw new Error(err);
+  }
+  return res;
+}
+
+async function loadVoices(engine) {
+  const sel = $("voice");
+  if (state.voices[engine]) return fillVoices(state.voices[engine]);
+  sel.innerHTML = "<option>Đang tải…</option>";
+  sel.disabled = true;
+  $("voiceHint").textContent = state.engines[engine]?.loaded === false
+    ? "Lần đầu sẽ tải model (vài trăm MB), có thể mất vài phút…" : "";
+  try {
+    const list = await (await api("/api/voices/" + engine)).json();
+    state.voices[engine] = list;
+    state.engines[engine].loaded = true;
+    if (state.engine === engine) fillVoices(list);
+  } catch (e) {
+    if (state.engine === engine) { sel.innerHTML = "<option>Không tải được</option>"; $("voiceHint").textContent = e.message; }
+  }
+}
+
+// Option cho dropdown giọng: giọng không dùng được (vd. giọng mix tạo ở mode khác) bị làm mờ kèm ghi chú.
+const voiceOpt = (text, v, value = v.id) => {
+  const unusable = v.usable === false;
+  const o = new Option(text + (unusable ? ` — ${v.unusable_reason}` : ""), value);
+  o.disabled = unusable;
+  return o;
+};
+
+function fillVoices(list) {
+  const sel = $("voice");
+  const saved = localStorage.getItem("voice:" + state.engine);
+  const opt = (v) => voiceOpt((v.favorite ? "♥ " : "") + (v.source === "preset" ? v.label : (v.source === "mix" ? "🎚️ " : "🎙️ ") + v.label), v);
+  const groups = [
+    ["Yêu thích", list.filter(v => v.favorite)],
+    ["Giọng của tôi", list.filter(v => v.source !== "preset" && !v.favorite)],
+    ["Giọng dựng sẵn", list.filter(v => v.source === "preset" && !v.favorite)],
+  ].filter(([, g]) => g.length);
+  sel.innerHTML = "";
+  if (groups.length === 1) sel.append(...groups[0][1].map(opt));
+  else for (const [name, g] of groups) {
+    const og = document.createElement("optgroup");
+    og.label = name;
+    og.append(...g.map(opt));
+    sel.append(og);
+  }
+  if (saved && list.some(v => v.id === saved && v.usable !== false)) sel.value = saved;
+  sel.disabled = false;
+  $("voiceHint").textContent = "";
+}
+
+const caps = () => state.engines[state.engine]?.capabilities || {};
+
+function renderEngines() {
+  const seg = $("engineSeg");
+  seg.innerHTML = "";
+  for (const [id, e] of Object.entries(state.engines)) {
+    const b = document.createElement("button");
+    b.dataset.engine = id;
+    b.append(e.label);
+    const small = document.createElement("small");
+    small.textContent = e.available ? e.description : `chưa cài · ${e.install_hint}`;
+    b.append(small);
+    if (!e.available) { b.disabled = true; b.title = `Chưa cài ${e.label}: ${e.install_hint}`; }
+    b.addEventListener("click", () => setEngine(id));
+    seg.append(b);
+  }
+}
+
+// Thanh nút chèn thẻ cảm xúc dùng chung cho ô văn bản (tab Đọc) và ô kịch bản (tab Hội thoại).
+function emotionBar(box, ta, tags) {
+  box.replaceChildren();
+  box.classList.toggle("hidden", !tags.length);
+  for (const tag of tags) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = tag;
+    b.addEventListener("click", () => {
+      ta.setRangeText(tag, ta.selectionStart, ta.selectionEnd, "end");
+      ta.focus();
+      ta.dispatchEvent(new Event("input")); // cập nhật bộ đếm / parse kịch bản
+    });
+    box.append(b);
+  }
+}
+const renderEmotionTags = (tags) => emotionBar($("emoBox"), $("text"), tags);
+const allEmotionTags = () => [...new Set(Object.values(state.engines).filter(e => e.available).flatMap(e => e.capabilities.emotion_tags || []))];
+
+function setEngine(engine) {
+  state.engine = engine;
+  document.querySelectorAll("#engineSeg button").forEach(b => b.classList.toggle("on", b.dataset.engine === engine));
+  const c = caps();
+  $("pitchBox").classList.toggle("hidden", !c.pitch);
+  $("cloneBox").classList.toggle("hidden", !c.clone);
+  $("normBox").classList.toggle("hidden", !c.normalize);
+  renderEmotionTags(c.emotion_tags || []);
+  localStorage.setItem("engine", engine);
+  loadVoices(engine);
+}
+
+async function generate() {
+  const text = $("text").value.trim();
+  if (!text) return setMsg("Hãy nhập văn bản.", "err");
+  const fd = new FormData();
+  fd.append("text", text);
+  fd.append("engine", state.engine);
+  fd.append("voice", $("voice").value);
+  fd.append("speed", $("speed").value);
+  fd.append("pitch", $("pitch").value);
+  fd.append("normalize", $("norm").checked);
+  const ref = caps().clone ? $("ref").files[0] : null;
+  if (ref) fd.append("ref_audio", ref);
+
+  const btn = $("go");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>Đang tạo giọng…';
+  setMsg(state.engines[state.engine]?.local ? "Engine chạy trên máy, văn bản dài có thể mất một lúc." : "");
+  const t0 = performance.now();
+  try {
+    const res = await api("/api/tts", { method: "POST", body: fd });
+    const blob = await res.blob();
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    loadHistory("tts", true); // lịch sử lưu ở server; bản mới nhất tự phát
+    const warn = res.headers.get("X-TTS-Warning");
+    if (warn) setMsg(`Xong sau ${secs}s. ⚠ ${decodeURIComponent(warn)}`, "warn");
+    else setMsg(`Xong sau ${secs}s`, "ok");
+  } catch (e) {
+    setMsg(e.message, "err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Đọc văn bản";
+  }
+}
+
+// ── lịch sử (data/history, 50 bản gần nhất) ──
+const HIST_BOX = { tts: "history", dialogue: "diaHistory" };
+const fmtTime = (iso) => new Date(iso).toLocaleString("vi-VN", { hour12: false, dateStyle: "short", timeStyle: "short" });
+
+function histTitle(m) {
+  if (m.kind === "dialogue") return `Hội thoại · ${m.lines} dòng · ${m.seconds}s`;
+  const v = state.voices[m.engine]?.find(x => x.id === m.voice);
+  const who = m.cloned_ref ? "giọng nhân bản" : v ? v.name || v.label : m.voice || "mặc định";
+  return `${state.engines[m.engine]?.label || m.engine} · ${who}`;
+}
+
+async function loadHistory(kind, play = false) {
+  const box = $(HIST_BOX[kind]);
+  try {
+    const items = await (await api("/api/history?kind=" + kind)).json();
+    box.replaceChildren(...items.map(historyItem));
+    if (!items.length) box.append(h("div", "hint", "Chưa có bản nào."));
+    if (play) box.querySelector("audio")?.play().catch(() => {});
+  } catch (e) { box.textContent = e.message; }
+}
+
+function historyItem(m) {
+  const url = `/api/history/${m.id}/audio`;
+  const audio = h("audio");
+  audio.controls = true; audio.preload = "none"; audio.src = url;
+  const dl = h("a", "", `Tải ${m.ext.toUpperCase()}`);
+  dl.href = url; dl.download = `giong-noi.${m.ext}`;
+  return h("div", "item",
+    h("div", "meta", h("span", "", `${histTitle(m)} · ${fmtTime(m.created_at)}`), dl),
+    h("div", "txt", m.kind === "dialogue" ? m.script : m.text), audio,
+    h("div", "hact", btn("Dùng lại", "Mở lại văn bản và giọng này", () => reuseHistory(m)), btn("Xoá", "Xoá bản này", () => deleteHistory(m))));
+}
+
+function reuseHistory(m) {
+  if (m.kind === "dialogue") {
+    showTab("dia");
+    $("diaScript").value = m.script; $("diaSpeed").value = String(m.speed);
+    $("diaGap").value = m.gap_ms; $("diaGapP").value = m.paragraph_gap_ms; $("diaNorm").checked = m.normalize !== false;
+    dia.cast = Object.fromEntries(Object.entries(m.cast).map(([n, c]) => [n, c.engine + "|" + c.voice]));
+    return parseDia();
+  }
+  showTab("tts");
+  $("text").value = m.text; updateCount();
+  $("speed").value = String(m.speed); $("pitch").value = m.pitch; $("pitchOut").textContent = fmtPitch(m.pitch);
+  $("norm").checked = m.normalize !== false;
+  if (m.voice) localStorage.setItem("voice:" + m.engine, m.voice);
+  setEngine(m.engine);
+  setMsg(m.cloned_ref ? "Bản gốc dùng file giọng mẫu; hãy chọn lại file nếu muốn dùng nó." : "");
+}
+
+async function deleteHistory(m) {
+  try { await api("/api/history/" + m.id, { method: "DELETE" }); loadHistory(m.kind); }
+  catch (e) { (m.kind === "dialogue" ? diaMsg : setMsg)(e.message, "err"); }
+}
+
+async function clearHistory(kind) {
+  if (!confirm("Xoá toàn bộ lịch sử này? Không thể hoàn tác.")) return;
+  try { await api("/api/history?kind=" + kind, { method: "DELETE" }); loadHistory(kind); }
+  catch (e) { (kind === "dialogue" ? diaMsg : setMsg)(e.message, "err"); }
+}
+
+function updateDrop() {
+  const f = $("ref").files[0];
+  $("drop").classList.toggle("has", !!f);
+  $("dropTxt").innerHTML = f ? `🎙️ ${f.name}<br/><small>Bấm để đổi file</small>`
+                             : "Chọn file audio mẫu 3–8 giây<br/>(wav/mp3, giọng rõ, ít tạp âm)";
+}
+
+// ── sự kiện ──
+$("text").addEventListener("input", updateCount);
+$("text").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) generate(); });
+$("pitch").addEventListener("input", (e) => $("pitchOut").textContent = fmtPitch(+e.target.value));
+$("voice").addEventListener("change", (e) => localStorage.setItem("voice:" + state.engine, e.target.value));
+$("ref").addEventListener("change", updateDrop);
+$("go").addEventListener("click", generate);
+
+(async () => {
+  updateCount();
+  try { state.engines = await (await api("/api/engines")).json(); } catch {}
+  renderEngines();
+  const saved = localStorage.getItem("engine");
+  const usable = (id) => state.engines[id]?.available;
+  const first = Object.keys(state.engines).find(usable);
+  if (first) { setEngine(usable(saved) ? saved : first); loadHistory("tts"); }
+  else $("voice").innerHTML = "<option>Không có engine nào</option>";
+})();
+
+// ───────────── Thư viện giọng ─────────────
+const lib = { all: [], loaded: false };
+const REGION = { bac: "Bắc", trung: "Trung", nam: "Nam" };
+const PREVIEW_TEXT = "Xin chào, đây là giọng đọc thử.";
+const previewCache = new Map();
+let player = null;
+
+const h = (tag, cls, ...kids) => { const e = document.createElement(tag); if (cls) e.className = cls; e.append(...kids); return e; };
+const btn = (txt, title, fn, cls = "") => {
+  const b = h("button", "btn " + cls, txt);
+  b.type = "button"; b.title = title; b.addEventListener("click", () => fn(b));
+  return b;
+};
+const libMsg = (t, cls = "") => { $("libMsg").textContent = t; $("libMsg").className = "msg " + cls; };
+const isLib = (v) => v.id.startsWith("lib:");
+
+function showTab(name) {
+  for (const id of ["tts", "lib", "mix", "dia"]) $("tab-" + id).classList.toggle("hidden", id !== name);
+  document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  if (name === "lib") loadLibrary();
+  if (name === "mix") loadMix();
+  if (name === "dia") loadDia();
+}
+
+async function loadLibrary() {
+  if (!lib.loaded) {
+    const slow = Object.values(state.engines).some(e => e.available && e.local && !e.loaded);
+    libMsg(slow ? "Lần đầu sẽ tải model VieNeu, có thể mất vài phút…" : "Đang tải…");
+  }
+  try {
+    const res = await api("/api/voices");
+    lib.all = await res.json();
+    mix.voices = []; dia.voices = []; // danh sách giọng trong tab Tạo giọng mới / Hội thoại tải lại khi mở
+    lib.loaded = true;
+    for (const v of lib.all) if (state.engines[v.engine]) state.engines[v.engine].loaded = true;
+    const warn = res.headers.get("X-TTS-Warning");
+    warn ? libMsg("⚠ " + decodeURIComponent(warn), "warn") : libMsg("");
+    renderLibrary();
+  } catch (e) { libMsg(e.message, "err"); }
+}
+
+function renderLibrary() {
+  const q = $("libQ").value.trim().toLowerCase(), g = $("libGender").value, r = $("libRegion").value, s = $("libScope").value;
+  const rank = (v) => (v.favorite ? 0 : v.source !== "preset" ? 1 : 2);
+  const list = lib.all.filter(v =>
+    (!g || v.gender === g) && (!r || v.region === r) &&
+    (!s || (s === "fav" ? v.favorite : s === "mine" ? v.source !== "preset" : v.source === "preset")) &&
+    (!q || [v.name || v.label, v.description, ...(v.tags || [])].join(" ").toLowerCase().includes(q))
+  ).sort((a, b) => rank(a) - rank(b));
+  const grid = $("libGrid");
+  grid.replaceChildren(...list.map(voiceCard));
+  if (!list.length && lib.loaded) grid.append(h("div", "hint", "Không có giọng nào khớp."));
+}
+
+function voiceCard(v) {
+  const mine = v.source !== "preset";
+  const meta = [v.gender && v.gender[0].toUpperCase() + v.gender.slice(1), REGION[v.region], state.engines[v.engine]?.label]
+    .filter(Boolean).join(" · ");
+  const fav = btn(v.favorite ? "♥" : "♡", v.favorite ? "Bỏ yêu thích" : "Yêu thích", () => toggleFav(v), "fav" + (v.favorite ? " on" : ""));
+  const act = h("div", "vact", btn("▶", "Nghe thử", (b) => preview(v, b)), btn("Dùng giọng này", "Chuyển sang tab đọc với giọng này", () => useVoice(v), "pri"));
+  if (isLib(v)) act.append(btn("✎", "Sửa", () => openDlg(v)), btn("🗑", "Xoá", () => deleteVoice(v)));
+  if (v.usable === false) act.querySelectorAll("button").forEach(b => { if (b.textContent === "▶" || b.classList.contains("pri")) b.disabled = true; });
+  const mixed = v.source === "mix", pct = Math.round((v.slider ?? 0.5) * 100);
+  const nameEl = h("div", "vname", (mixed ? "🎚️ " : mine ? "🎙️ " : "") + (v.name || v.label));
+  if (mixed) nameEl.append(h("span", "badge", "Trộn"));
+  const card = h("div", "vcard", h("div", "vtop", nameEl, fav), h("div", "vmeta", meta));
+  if ((v.tags || []).length) card.append(h("div", "vtags", ...v.tags.map(t => h("span", "", t))));
+  if (mixed) card.append(h("div", "vdesc", `${v.voice_a_name} × ${v.voice_b_name} (A ${pct}% · B ${100 - pct}%)`));
+  if (mine && v.description) card.append(h("div", "vdesc", v.description));
+  if (v.usable === false) { card.classList.add("dim"); card.append(h("div", "vdesc", "⚠ " + v.unusable_reason)); }
+  card.append(act);
+  return card;
+}
+
+async function toggleFav(v) {
+  const on = !v.favorite;
+  v.favorite = on; renderLibrary();
+  const fd = new FormData();
+  fd.append("engine", v.engine); fd.append("voice", v.id); fd.append("favorite", on);
+  try { await api("/api/favorites", { method: "POST", body: fd }); state.voices = {}; }
+  catch (e) { v.favorite = !on; renderLibrary(); libMsg(e.message, "err"); }
+}
+
+async function preview(v, b, report = libMsg) {
+  player?.pause();
+  const old = b.textContent;
+  b.disabled = true; b.textContent = "…";
+  try {
+    const key = v.engine + ":" + v.id;
+    let url = previewCache.get(key);
+    if (!url) {
+      let res;
+      if (isLib(v)) res = await api("/api/library/" + v.id.slice(4) + "/preview");
+      else {
+        const fd = new FormData();
+        fd.append("text", PREVIEW_TEXT); fd.append("engine", v.engine); fd.append("voice", v.id);
+        res = await api("/api/tts", { method: "POST", body: fd });
+      }
+      url = URL.createObjectURL(await res.blob());
+      previewCache.set(key, url);
+    }
+    player = new Audio(url);
+    await player.play();
+  } catch (e) { report(e.message, "err"); }
+  finally { b.disabled = false; b.textContent = old; }
+}
+
+function useVoice(v) {
+  localStorage.setItem("voice:" + v.engine, v.id);
+  showTab("tts");
+  setEngine(v.engine);
+}
+
+async function deleteVoice(v) {
+  if (!confirm(`Xoá giọng "${v.name}"? Không thể hoàn tác.`)) return;
+  try {
+    await api("/api/library/" + v.id.slice(4), { method: "DELETE" });
+    previewCache.delete(v.engine + ":" + v.id);
+    state.voices = {};
+    if (localStorage.getItem("voice:" + v.engine) === v.id) localStorage.removeItem("voice:" + v.engine);
+    await loadLibrary();
+  } catch (e) { libMsg(e.message, "err"); }
+}
+
+// ── hộp thoại thêm / sửa giọng ──
+const dlgState = { editing: null, file: null, bad: false, rec: null };
+
+function openDlg(v = null, mixing = null) {
+  dlgState.editing = v; dlgState.mix = mixing; dlgState.file = null; dlgState.bad = false;
+  const clonable = Object.entries(state.engines).filter(([, e]) => e.available && e.capabilities.clone);
+  if (!v && !mixing && !clonable.length) return libMsg("Không có engine nào hỗ trợ nhân bản giọng.", "err");
+  $("dlgTitle").textContent = mixing ? "Lưu giọng trộn" : v ? "Sửa giọng" : "Thêm giọng";
+  $("fCreateOnly").classList.toggle("hidden", !!(v || mixing));
+  $("fConsentBox").classList.toggle("hidden", !!(v || mixing));
+  $("fEngine").replaceChildren(...clonable.map(([id, e]) => new Option(e.label, id)));
+  $("fName").value = v?.name || mixing?.name || ""; $("fGender").value = v?.gender || mixing?.gender || "";
+  $("fRegion").value = v?.region || mixing?.region || "";
+  $("fTags").value = (v?.tags || (mixing ? ["trộn"] : [])).join(", "); $("fDesc").value = v?.description || "";
+  $("fConsent").checked = false; $("fErr").textContent = ""; $("fInfo").textContent = ""; $("fInfo").className = "hint";
+  $("fFile").value = ""; $("fDrop").classList.remove("has");
+  $("fDropTxt").innerHTML = "Kéo thả file vào đây hoặc bấm để chọn<br/>(wav/mp3, giọng rõ, ít tạp âm)";
+  $("dlg").showModal();
+}
+
+async function audioDuration(file) {
+  try {
+    const ctx = new AudioContext();
+    const buf = await ctx.decodeAudioData(await file.arrayBuffer());
+    ctx.close();
+    return buf.duration;
+  } catch { return null; } // trình duyệt không giải mã được: để server kiểm tra
+}
+
+async function setSample(file) {
+  dlgState.file = file; dlgState.bad = false;
+  $("fDrop").classList.add("has");
+  $("fDropTxt").innerHTML = "";
+  $("fDropTxt").append(`🎙️ ${file.name}`);
+  const info = $("fInfo");
+  info.className = "hint"; info.textContent = "Đang đọc thời lượng…";
+  const d = await audioDuration(file);
+  if (d === null) info.textContent = "Không xem được thời lượng; server sẽ kiểm tra khi lưu.";
+  else if (d < 3) { dlgState.bad = true; info.className = "msg err"; info.textContent = `Audio quá ngắn (${d.toFixed(1)}s). Cần 3–30 giây.`; }
+  else if (d > 30) { dlgState.bad = true; info.className = "msg err"; info.textContent = `Audio quá dài (${d.toFixed(1)}s). Cần 3–30 giây.`; }
+  else if (d > 10) { info.className = "msg warn"; info.textContent = `Thời lượng ${d.toFixed(1)}s. Nên dùng mẫu 3–10 giây.`; }
+  else { info.className = "msg ok"; info.textContent = `Thời lượng ${d.toFixed(1)}s.`; }
+}
+
+function encodeWav(buf) {
+  const n = buf.length, ch = buf.numberOfChannels, pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let c = 0; c < ch; c++) s += buf.getChannelData(c)[i];
+    pcm[i] = Math.max(-1, Math.min(1, s / ch)) * 0x7fff;
+  }
+  const dv = new DataView(new ArrayBuffer(44 + n * 2));
+  const str = (o, t) => [...t].forEach((c, i) => dv.setUint8(o + i, c.charCodeAt(0)));
+  str(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, buf.sampleRate, true); dv.setUint32(28, buf.sampleRate * 2, true);
+  dv.setUint16(32, 2, true); dv.setUint16(34, 16, true); str(36, "data"); dv.setUint32(40, n * 2, true);
+  new Int16Array(dv.buffer, 44).set(pcm);
+  return new File([dv.buffer], "ghi-am.wav", { type: "audio/wav" });
+}
+
+// MediaRecorder cho webm/ogg; giải mã ngay trong trình duyệt rồi gửi WAV để engine/server khỏi phụ thuộc codec.
+async function recordedToFile(blob) {
+  try {
+    const ctx = new AudioContext();
+    const buf = await ctx.decodeAudioData(await blob.arrayBuffer());
+    ctx.close();
+    return encodeWav(buf);
+  } catch { return new File([blob], "ghi-am." + (blob.type.includes("ogg") ? "ogg" : "webm"), { type: blob.type }); }
+}
+
+async function toggleRec() {
+  if (dlgState.rec) return dlgState.rec.stop();
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { $("fErr").textContent = "Không truy cập được micro (hãy cho phép quyền micro)."; return; }
+  $("fErr").textContent = "";
+  const rec = new MediaRecorder(stream), chunks = [], t0 = Date.now();
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  const tick = setInterval(() => {
+    const s = (Date.now() - t0) / 1000;
+    $("fRecTime").textContent = s.toFixed(0) + "s";
+    if (s >= 30) rec.stop();
+  }, 250);
+  rec.onstop = async () => {
+    clearInterval(tick);
+    stream.getTracks().forEach(t => t.stop());
+    dlgState.rec = null;
+    $("fRec").textContent = "● Ghi âm"; $("fRecTime").textContent = "";
+    if (chunks.length) setSample(await recordedToFile(new Blob(chunks, { type: rec.mimeType })));
+  };
+  dlgState.rec = rec;
+  rec.start();
+  $("fRec").textContent = "■ Dừng";
+}
+
+async function submitDlg(e) {
+  e.preventDefault();
+  const err = (t) => { $("fErr").textContent = t; };
+  const v = dlgState.editing, mixing = dlgState.mix;
+  if (!$("fName").value.trim()) return err("Hãy nhập tên giọng.");
+  const fd = new FormData();
+  fd.append("name", $("fName").value.trim()); fd.append("gender", $("fGender").value); fd.append("region", $("fRegion").value);
+  fd.append("tags", $("fTags").value); fd.append("description", $("fDesc").value.trim());
+  if (mixing) {
+    fd.append("engine", mix.engine); fd.append("voice_a", mixing.a); fd.append("voice_b", mixing.b); fd.append("slider", mixing.slider);
+  } else if (!v) {
+    if (!dlgState.file) return err("Hãy chọn hoặc ghi âm audio mẫu.");
+    if (dlgState.bad) return err("Audio mẫu phải dài 3–30 giây.");
+    if (!$("fConsent").checked) return err("Cần xác nhận bạn là chủ giọng nói hoặc đã được người đó đồng ý.");
+    fd.append("engine", $("fEngine").value); fd.append("consent", "true"); fd.append("ref_audio", dlgState.file);
+  }
+  const save = $("fSave");
+  save.disabled = true; save.textContent = v ? "Đang lưu…" : "Đang xử lý…";
+  err("");
+  try {
+    await api(mixing ? "/api/mix/save" : v ? "/api/library/" + v.id.slice(4) : "/api/library", { method: v ? "PATCH" : "POST", body: fd });
+    $("dlg").close();
+    state.voices = {};
+    await loadLibrary();
+    if (mixing) { mixMsg(`Đã lưu "${$("fName").value.trim()}" vào thư viện.`, "ok"); loadMix(); }
+  } catch (ex) { err(ex.message); }
+  finally { save.disabled = false; save.textContent = "Lưu giọng"; }
+}
+
+document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+for (const id of ["libQ", "libGender", "libRegion", "libScope"]) $(id).addEventListener("input", renderLibrary);
+$("libAdd").addEventListener("click", () => openDlg());
+$("dlgForm").addEventListener("submit", submitDlg);
+$("fCancel").addEventListener("click", () => $("dlg").close());
+$("dlg").addEventListener("close", () => dlgState.rec?.stop());
+$("fFile").addEventListener("change", (e) => e.target.files[0] && setSample(e.target.files[0]));
+$("fRec").addEventListener("click", toggleRec);
+$("fDrop").addEventListener("dragover", (e) => e.preventDefault());
+$("fDrop").addEventListener("drop", (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) setSample(f); });
+
+// ───────────── Tạo giọng mới (trộn giọng) ─────────────
+const mix = { voices: [], engine: null, abort: null, timer: null };
+const mixMsg = (t, cls = "") => { $("mixMsg").textContent = t; $("mixMsg").className = "msg " + cls; };
+const mixVoice = (side) => mix.voices.find(v => v.id === $("mix" + side).value);
+const mixName = (v) => v ? v.name || v.label : "…";
+const mixLabel = (v) => (v.favorite ? "♥ " : "") + (v.source === "mix" ? "🎚️ " : v.source !== "preset" ? "🎙️ " : "") + mixName(v);
+
+function fillMixSelect(side) {
+  const sel = $("mix" + side), q = $("mixQ" + side).value.trim().toLowerCase(), cur = sel.value;
+  const list = mix.voices.filter(v => !q || [mixName(v), v.description, ...(v.tags || [])].join(" ").toLowerCase().includes(q));
+  const opts = list.map(v => voiceOpt(mixLabel(v), v));
+  const curV = mix.voices.find(v => v.id === cur);
+  // Ô tìm chỉ lọc: giọng đang chọn bị lọc mất vẫn hiện ở đầu danh sách và giữ nguyên lựa chọn.
+  if (curV && !list.includes(curV)) opts.unshift(voiceOpt(mixLabel(curV) + " (đang chọn)", curV));
+  sel.replaceChildren(...opts);
+  if (curV) sel.value = cur;
+  updateMixLabels();
+}
+
+function updateMixLabels() {
+  const s = +$("mixSlider").value, pct = Math.round(s * 100);
+  $("mixLblA").textContent = "Giọng A: " + mixName(mixVoice("A"));
+  $("mixLblB").textContent = "Giọng B: " + mixName(mixVoice("B"));
+  $("mixPct").textContent = `A ${pct}% · B ${100 - pct}%`;
+}
+
+async function loadMix() {
+  mix.engine = Object.keys(state.engines).find(id => state.engines[id].available && state.engines[id].capabilities.mix);
+  if (!mix.engine) return mixMsg("Không có engine nào hỗ trợ trộn giọng.", "err");
+  if (!$("mixText").value) $("mixText").value = PREVIEW_MIX_TEXT;
+  if (mix.voices.length) return;
+  if (!state.engines[mix.engine].loaded) mixMsg("Lần đầu sẽ tải model, có thể mất vài phút…");
+  try {
+    mix.voices = await (await api("/api/voices/" + mix.engine)).json();
+    state.engines[mix.engine].loaded = true;
+    const hadA = $("mixA").value, hadB = $("mixB").value;
+    fillMixSelect("A"); fillMixSelect("B");
+    if (!hadA && !hadB && mix.voices.length > 1) $("mixB").selectedIndex = 1; // mặc định hai giọng đầu danh sách
+    updateMixLabels();
+    mixMsg("");
+  } catch (e) { mixMsg(e.message, "err"); }
+}
+
+async function mixPreview() {
+  clearTimeout(mix.timer);
+  mix.abort?.abort();
+  const a = $("mixA").value, b = $("mixB").value;
+  if (!a || !b) return;
+  if (a === b) return mixMsg("Hãy chọn hai giọng khác nhau.", "err");
+  const ctl = mix.abort = new AbortController();
+  const fd = new FormData();
+  fd.append("engine", mix.engine); fd.append("voice_a", a); fd.append("voice_b", b);
+  fd.append("slider", $("mixSlider").value); fd.append("text", $("mixText").value);
+  mixMsg("Đang tạo giọng trộn…");
+  try {
+    const blob = await (await api("/api/mix", { method: "POST", body: fd, signal: ctl.signal })).blob();
+    const audio = $("mixAudio");
+    if (audio.src.startsWith("blob:")) URL.revokeObjectURL(audio.src);
+    audio.src = URL.createObjectURL(blob);
+    audio.play().catch(() => {});
+    mixMsg("");
+  } catch (e) { if (e.name !== "AbortError") mixMsg(e.message, "err"); }
+  finally { if (mix.abort === ctl) mix.abort = null; }
+}
+
+function openMixSave() {
+  const a = mixVoice("A"), b = mixVoice("B");
+  if (!a || !b || a.id === b.id) return mixMsg("Hãy chọn hai giọng khác nhau.", "err");
+  openDlg(null, {
+    a: a.id, b: b.id, slider: $("mixSlider").value, name: `${mixName(a)} × ${mixName(b)}`.slice(0, 60),
+    gender: a.gender === b.gender ? a.gender || "" : "", region: a.region === b.region ? a.region || "" : "",
+  });
+}
+
+const PREVIEW_MIX_TEXT = "Xin chào, hôm nay trời đẹp quá, mình đi dạo nhé.";
+for (const side of ["A", "B"]) {
+  $("mixQ" + side).addEventListener("input", () => fillMixSelect(side));
+  $("mix" + side).addEventListener("change", updateMixLabels);
+  $("mixPlay" + side).addEventListener("click", (e) => { const v = mixVoice(side); if (v) preview(v, e.currentTarget, mixMsg); });
+}
+$("mixSlider").addEventListener("input", updateMixLabels);
+$("mixSlider").addEventListener("change", () => {  // thả thanh trượt: 600 ms sau tự nghe thử
+  clearTimeout(mix.timer);
+  if ($("mixAuto").checked) mix.timer = setTimeout(mixPreview, 600);
+});
+$("mixPreview").addEventListener("click", mixPreview);
+$("mixSave").addEventListener("click", openMixSave);
+// ───────────── Hội thoại ─────────────
+const dia = { voices: [], cast: {}, speakers: [], job: null, ver: 0, timer: null, parseTimer: null, parseSeq: 0 };
+const HINT_F = ["chị", "bà", "cô", "mẹ", "dì", "lan", "hoa", "mai", "linh", "hương", "thảo", "ngọc", "trang", "thu", "nga", "my", "vy", "huệ", "cúc"];
+const HINT_M = ["anh", "ông", "bác", "chú", "cậu", "thầy", "bố", "minh", "nam", "hùng", "dũng", "tuấn", "khoa", "long", "phong", "hải", "đức", "sơn"];
+const diaMsg = (t, cls = "") => { $("diaMsg").textContent = t; $("diaMsg").className = "msg " + cls; };
+const diaKey = (v) => v.engine + "|" + v.id;
+const diaSplit = (k) => { const i = k.indexOf("|"); return { engine: k.slice(0, i), voice: k.slice(i + 1) }; };
+const nameGender = (name) => {
+  const t = name.toLowerCase().split(/\s+/);
+  return t.some(x => HINT_F.includes(x)) ? "nữ" : t.some(x => HINT_M.includes(x)) ? "nam" : "";
+};
+
+async function loadDia() {
+  loadProjects();
+  emotionBar($("diaEmo"), $("diaScript"), allEmotionTags());
+  loadHistory("dialogue");
+  if (!dia.voices.length) {
+    diaMsg("Đang tải danh sách giọng…");
+    try { dia.voices = await (await api("/api/voices")).json(); }
+    catch (e) { return diaMsg(e.message, "err"); }
+    diaMsg("");
+  }
+  parseDia();
+}
+
+// Dòng có thẻ cảm xúc mà giọng của người nói không hỗ trợ (edge): thẻ sẽ bị bỏ khi tạo audio.
+const NO_TAG_HINT = "edge không hỗ trợ thẻ, sẽ bị bỏ";
+function unsupportedTags(speaker, text) {
+  const key = dia.cast[speaker];
+  if (!key) return [];
+  const own = new Set(state.engines[diaSplit(key).engine]?.capabilities.emotion_tags || []);
+  const known = allEmotionTags();
+  return (text.match(/\[[^\]]+\]/g) || []).filter(t => known.includes(t) && !own.has(t));
+}
+
+function updateDiaWarn() {
+  const bad = (dia.lines || []).filter(l => unsupportedTags(l.speaker, l.text).length).map(l => l.i + 1);
+  $("diaWarn").textContent = bad.length ? `⚠ Dòng ${bad.join(", ")}: ${NO_TAG_HINT}.` : "";
+}
+
+function suggestCast(names) {
+  if (!dia.voices.length) return; // chưa tải giọng: không xoá cast đã có
+  const valid = new Set(dia.voices.filter(v => v.usable !== false).map(diaKey));
+  for (const n of names) if (dia.cast[n] && !valid.has(dia.cast[n])) delete dia.cast[n];
+  const todo = names.filter(n => !dia.cast[n]);
+  if (!todo.length || !dia.voices.length) return;
+  // Ưu tiên giọng tiếng Việt, engine chất lượng cao (có clone) trước; mỗi người một giọng khác nhau khi còn giọng.
+  const pool = dia.voices.filter(v => v.usable !== false && (!v.lang || v.lang.startsWith("vi")))
+    .sort((a, b) => !!state.engines[b.engine]?.capabilities.clone - !!state.engines[a.engine]?.capabilities.clone);
+  const used = new Set(names.map(n => dia.cast[n]).filter(Boolean));
+  let alt = 0;
+  for (const n of todo) {
+    const g = nameGender(n) || (++alt % 2 ? "nữ" : "nam"); // tên không gợi ý giới tính thì luân phiên nữ / nam
+    const free = pool.filter(v => !used.has(diaKey(v)));
+    const pick = free.find(v => v.gender === g) || free[0] || pool.find(v => v.gender === g) || pool[0];
+    if (pick) { dia.cast[n] = diaKey(pick); used.add(diaKey(pick)); }
+  }
+}
+
+function renderCast() {
+  const box = $("diaCast");
+  if (!dia.speakers.length) return box.replaceChildren(h("div", "hint", "Chưa có người nói nào. Viết [Tên]: lời thoại trong kịch bản."));
+  box.replaceChildren(...dia.speakers.map(name => {
+    const sel = document.createElement("select");
+    sel.append(new Option("— chọn giọng —", ""));
+    for (const [eid, e] of Object.entries(state.engines)) {
+      const vs = dia.voices.filter(v => v.engine === eid);
+      if (!vs.length) continue;
+      const og = document.createElement("optgroup");
+      og.label = e.label;
+      og.append(...vs.map(v => voiceOpt(mixLabel(v), v, diaKey(v))));
+      sel.append(og);
+    }
+    sel.value = dia.cast[name] || "";
+    sel.addEventListener("change", () => { dia.cast[name] = sel.value; updateDiaWarn(); });
+    return h("div", "crow", h("b", "", name), sel);
+  }));
+}
+
+function scheduleParse() {
+  clearTimeout(dia.parseTimer);
+  dia.parseTimer = setTimeout(parseDia, 400);
+}
+
+async function parseDia() {
+  const seq = ++dia.parseSeq;
+  try {
+    const res = await api("/api/dialogue/parse", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ script: $("diaScript").value }) });
+    const d = await res.json();
+    if (seq !== dia.parseSeq) return;
+    $("diaParseMsg").textContent = ""; $("diaParseMsg").className = "msg";
+    $("diaCount").textContent = `${d.lines.length} dòng · ${d.speakers.length} người nói · ${d.chars.toLocaleString("vi-VN")} ký tự`;
+    dia.speakers = d.speakers; dia.lines = d.lines;
+    suggestCast(d.speakers);
+    renderCast();
+    updateDiaWarn();
+  } catch (e) {
+    if (seq === dia.parseSeq) { $("diaParseMsg").textContent = e.message; $("diaParseMsg").className = "msg err"; }
+  }
+}
+
+const castObj = () => Object.fromEntries(dia.speakers.filter(n => dia.cast[n]).map(n => [n, diaSplit(dia.cast[n])]));
+const diaBody = () => ({ script: $("diaScript").value, cast: castObj(), speed: +$("diaSpeed").value,
+  gap_ms: +$("diaGap").value, paragraph_gap_ms: +$("diaGapP").value, normalize: $("diaNorm").checked });
+
+async function diaGenerate() {
+  if (!dia.speakers.length) return diaMsg("Kịch bản chưa có dòng nào.", "err");
+  const missing = dia.speakers.filter(n => !dia.cast[n]);
+  if (missing.length) return diaMsg("Chưa gán giọng cho: " + missing.join(", "), "err");
+  $("diaGo").disabled = true;
+  diaMsg("");
+  try {
+    const res = await api("/api/dialogue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(diaBody()) });
+    dia.job = (await res.json()).job_id;
+    $("diaResult").classList.remove("hidden");
+    $("diaOut").classList.add("hidden");
+    pollDia();
+  } catch (e) { diaMsg(e.message, "err"); $("diaGo").disabled = false; }
+}
+
+async function pollDia() {
+  clearTimeout(dia.timer);
+  try {
+    const info = await (await api("/api/dialogue/" + dia.job)).json();
+    renderJob(info);
+    if (info.status === "running") return void (dia.timer = setTimeout(pollDia, 500));
+    $("diaGo").disabled = false;
+    if (info.status === "error") diaMsg(info.error, "err");
+    else { diaMsg("Xong.", "ok"); loadHistory("dialogue"); }
+  } catch (e) { diaMsg(e.message, "err"); $("diaGo").disabled = false; }
+}
+
+function renderJob(info) {
+  $("diaProg").value = info.done / info.total;
+  $("diaProgTxt").textContent = info.status === "running" ? `Đang tạo… ${info.done}/${info.total} dòng` : `${info.done}/${info.total} dòng`;
+  const url = (path) => `/api/dialogue/${info.id}/${path}`;
+  $("diaOut").classList.toggle("hidden", !info.audio.wav);
+  if (info.audio.wav) {
+    const audio = $("diaAudio"), src = url("audio?v=" + dia.ver);
+    if (!audio.src.endsWith(src)) audio.src = src;
+    $("diaWav").href = url("audio?fmt=wav");
+    $("diaMp3").href = url("audio?fmt=mp3");
+    $("diaMp3").classList.toggle("hidden", !info.audio.mp3);
+  }
+  const busy = info.status === "running";
+  $("diaLines").replaceChildren(...info.lines.map(l => {
+    const mark = l.status === "done" ? (l.cached ? "✓ cache" : "✓") : l.status === "error" ? "⚠" : "…";
+    const text = h("div", "dtext", l.text);
+    if (unsupportedTags(l.speaker, l.text).length) {
+      const ic = h("span", "warn-ic", "⚠");
+      ic.title = NO_TAG_HINT;
+      text.prepend(ic, " ");
+    }
+    if (l.error) text.append(h("small", "", l.error));
+    const play = btn("▶", "Nghe dòng này", () => { player?.pause(); player = new Audio(url(`line/${l.i}/audio?v=${dia.ver}`)); player.play().catch(() => {}); });
+    play.disabled = l.status !== "done";
+    const redo = btn("🔄", "Sinh lại dòng này (take mới)", (b) => regenLine(l.i, b));
+    redo.disabled = busy;
+    return h("div", "dline", h("span", "who", `${l.i + 1}. ${l.speaker}`), h("span", "hint", mark), text, h("div", "dact", play, redo));
+  }));
+}
+
+async function regenLine(i, b) {
+  b.textContent = "…";
+  document.querySelectorAll("#diaLines .dact button").forEach(x => { x.disabled = true; });
+  try {
+    const info = await (await api(`/api/dialogue/${dia.job}/line/${i}`, { method: "POST" })).json();
+    dia.ver = Date.now();
+    renderJob(info);
+    info.status === "error" ? diaMsg(info.error, "err") : diaMsg(`Đã sinh lại dòng ${i + 1}.`, "ok");
+  } catch (e) { diaMsg(e.message, "err"); pollDia(); }
+}
+
+// ── dự án ──
+async function loadProjects(selectId = "") {
+  try {
+    const list = await (await api("/api/projects")).json();
+    const sel = $("diaProjects");
+    sel.replaceChildren(new Option(list.length ? "— chọn dự án —" : "— chưa có dự án —", ""), ...list.map(p => new Option(p.name, p.id)));
+    sel.value = selectId;
+  } catch (e) { diaMsg(e.message, "err"); }
+}
+
+async function saveProject() {
+  const name = $("diaProjName").value.trim() || $("diaProjects").selectedOptions[0]?.value && $("diaProjects").selectedOptions[0].textContent;
+  if (!name) return diaMsg("Hãy nhập tên dự án.", "err");
+  try {
+    const p = await (await api("/api/projects", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, ...diaBody() }) })).json();
+    await loadProjects(p.id);
+    diaMsg(`Đã lưu dự án "${p.name}".`, "ok");
+  } catch (e) { diaMsg(e.message, "err"); }
+}
+
+async function openProject() {
+  const id = $("diaProjects").value;
+  if (!id) return diaMsg("Hãy chọn một dự án.", "err");
+  try {
+    const p = await (await api("/api/projects/" + id)).json();
+    $("diaScript").value = p.script; $("diaSpeed").value = String(p.speed);
+    $("diaGap").value = p.gap_ms; $("diaGapP").value = p.paragraph_gap_ms; $("diaProjName").value = p.name;
+    $("diaNorm").checked = p.normalize !== false;
+    dia.cast = Object.fromEntries(Object.entries(p.cast).map(([n, c]) => [n, c.engine + "|" + c.voice]));
+    await parseDia();
+    diaMsg(`Đã mở dự án "${p.name}".`, "ok");
+  } catch (e) { diaMsg(e.message, "err"); }
+}
+
+async function deleteProject() {
+  const id = $("diaProjects").value;
+  if (!id || !confirm("Xoá dự án này?")) return;
+  try { await api("/api/projects/" + id, { method: "DELETE" }); await loadProjects(); diaMsg("Đã xoá dự án.", "ok"); }
+  catch (e) { diaMsg(e.message, "err"); }
+}
+
+$("diaScript").addEventListener("input", scheduleParse);
+$("diaGo").addEventListener("click", diaGenerate);
+$("diaSave").addEventListener("click", saveProject);
+$("diaOpen").addEventListener("click", openProject);
+$("diaDelProj").addEventListener("click", deleteProject);
+$("histClear").addEventListener("click", () => clearHistory("tts"));
+$("diaHistClear").addEventListener("click", () => clearHistory("dialogue"));
+</script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# Smoke test các luồng chính. Khởi động server với TTS_DATA_DIR tạm, chạy chuỗi curl, in PASS/FAIL, tự dọn.
+#   scripts/smoke_test.sh            # tất cả
+#   SKIP_EDGE=1 scripts/smoke_test.sh  # bỏ các bước cần mạng (edge-tts)
+# Thoát với mã 0 nếu mọi bước PASS, 1 nếu có FAIL. Dùng .venv/bin/python nếu có.
+set -u
+cd "$(dirname "$0")/.."
+PY=python3; [ -x .venv/bin/python ] && PY=.venv/bin/python
+PORT=${PORT:-8765}
+B="http://127.0.0.1:$PORT"
+DATA=$(mktemp -d)
+WORK=$(mktemp -d)
+SERVER_PID=""
+PASS=0; FAIL=0
+
+cleanup() {
+  [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null && wait "$SERVER_PID" 2>/dev/null
+  rm -rf "$DATA" "$WORK"
+}
+trap cleanup EXIT
+
+ok()   { echo "PASS  $1"; PASS=$((PASS+1)); }
+bad()  { echo "FAIL  $1${2:+ — $2}"; FAIL=$((FAIL+1)); }
+# check <tên> <lệnh trả 0 nếu đạt>
+check() { local name=$1; shift; if "$@" >"$WORK/out" 2>&1; then ok "$name"; else bad "$name" "$(head -c 200 "$WORK/out" | tr '\n' ' ')"; fi; }
+json()  { $PY -c "import sys,json; d=json.load(sys.stdin); print($1)"; }
+status() { curl -s -o "$WORK/body" -w '%{http_code}' "$@"; }
+expect_status() { local want=$1; shift; local got; got=$(status "$@"); [ "$got" = "$want" ] || { echo "want $want got $got: $(head -c 150 "$WORK/body")"; return 1; }; }
+wav_ok() { $PY - "$1" <<'E'
+import sys, soundfile as sf
+w, sr = sf.read(sys.argv[1]); assert len(w) > sr * 0.2, "audio quá ngắn"; print(sr)
+E
+}
+wait_job() {  # wait_job <job_id> → in trạng thái cuối
+  local s
+  for _ in $(seq 1 120); do
+    s=$(curl -s "$B/api/dialogue/$1" | json "d['status']")
+    [ "$s" != running ] && break; sleep 1
+  done
+  echo "$s"
+}
+
+echo "== khởi động server (TTS_DATA_DIR=$DATA, cổng $PORT)"
+TTS_DATA_DIR="$DATA" PORT=$PORT $PY server.py >"$WORK/server.log" 2>&1 &
+SERVER_PID=$!
+for _ in $(seq 1 60); do curl -s -o /dev/null "$B/api/engines" && break; sleep 0.5; done
+check "server lên" curl -sf "$B/api/engines"
+
+echo "== cơ bản"
+check "GET /api/engines có capabilities" bash -c "curl -s $B/api/engines | $PY -c \"import sys,json; d=json.load(sys.stdin); assert d['vieneu']['capabilities']['mix'] and not d['edge']['capabilities']['normalize']\""
+check "GET / (index.html)" expect_status 200 "$B/"
+check "voices/zzz → 404" expect_status 404 "$B/api/voices/zzz"
+check "tts văn bản trống → 400" expect_status 400 -X POST "$B/api/tts" -F text=" "
+check "tts quá dài → 400" bash -c "TTS_X=\$($PY -c \"print('a'*20001)\"); [ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/tts -F text=\"\$TTS_X\")\" = 400 ]"
+
+echo "== TTS"
+if [ -z "${SKIP_EDGE:-}" ]; then
+  # edge-tts là dịch vụ online, thỉnh thoảng lỗi tạm thời: thử tối đa 3 lần
+  edge_tts() { for _ in 1 2 3; do [ "$(status -X POST "$B/api/tts" -F text="Xin chào" -F engine=edge -F voice=vi-VN-HoaiMyNeural -o "$WORK/e.mp3")" = 200 ] && return 0; sleep 1; done; echo "edge-tts lỗi: $(head -c 150 "$WORK/body")"; return 1; }
+  check "tts edge (mp3)" edge_tts
+  check "mp3 hợp lệ" bash -c "file -b $WORK/e.mp3 | grep -qi 'mpeg\\|mp3\\|ID3'"
+fi
+check "tts vieneu (wav 48 kHz)" bash -c "[ \"\$(curl -s -o $WORK/v.wav -w '%{http_code}' -X POST $B/api/tts -F text='Xin chào các bạn, đây là bản thử.' -F engine=vieneu -F voice='Trúc Ly')\" = 200 ] && [ \"\$($PY -c \"import soundfile as sf; print(sf.info('$WORK/v.wav').samplerate)\")\" = 48000 ]"
+check "tts vieneu có chuẩn hoá + thẻ cảm xúc" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/tts -F text='Giá 50k, \$100 ở TP. Hồ Chí Minh [cười].' -F engine=vieneu -F voice='Trúc Ly' -F normalize=true)\" = 200 ]"
+
+echo "== lịch sử"
+check "lịch sử có bản tts" bash -c "curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; assert len(json.load(sys.stdin)) >= 1\""
+HID=$(curl -s "$B/api/history" | json "d[0]['id']" 2>/dev/null)
+check "tải audio lịch sử" expect_status 200 "$B/api/history/$HID/audio"
+check "xoá một bản lịch sử" expect_status 200 -X DELETE "$B/api/history/$HID"
+check "xoá bản không tồn tại → 404" expect_status 404 -X DELETE "$B/api/history/$HID"
+
+echo "== thư viện giọng"
+# audio mẫu 3–30 giây: sinh bằng chính VieNeu
+curl -s -o "$WORK/sample.wav" -X POST "$B/api/tts" -F text="Hôm nay trời đẹp lắm, tôi muốn đi dạo cùng bạn bè quanh hồ vào buổi chiều." -F engine=vieneu -F voice="Trúc Ly"
+check "thêm giọng không consent → 400" expect_status 400 -X POST "$B/api/library" -F name=A -F engine=vieneu -F ref_audio=@"$WORK/sample.wav"
+check "thêm giọng audio quá ngắn → 400" bash -c "$PY -c \"import soundfile as sf,numpy as np; sf.write('$WORK/short.wav', np.zeros(24000)+0.1, 24000)\"; [ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/library -F name=S -F engine=vieneu -F consent=true -F ref_audio=@$WORK/short.wav)\" = 400 ]"
+check "thêm giọng (clone)" bash -c "[ \"\$(curl -s -o $WORK/lib.json -w '%{http_code}' -X POST $B/api/library -F name='Giọng thử' -F engine=vieneu -F gender=nữ -F region=bac -F tags='thử,smoke' -F consent=true -F ref_audio=@$WORK/sample.wav)\" = 200 ]"
+LIB=$(json "d['voice']" <"$WORK/lib.json" 2>/dev/null)
+check "giọng lib: xuất hiện trong /api/voices/vieneu" bash -c "curl -s $B/api/voices/vieneu | grep -q '$LIB'"
+check "tts bằng giọng lib:" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/tts -F text='Xin chào.' -F engine=vieneu -F voice='$LIB')\" = 200 ]"
+check "preview giọng lib (cache)" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' $B/api/library/${LIB#lib:}/preview)\" = 200 ] && [ \"\$(curl -s -o /dev/null -w '%{http_code}' $B/api/library/${LIB#lib:}/preview)\" = 200 ]"
+check "sửa metadata + yêu thích" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X PATCH $B/api/library/${LIB#lib:} -F name='Giọng đổi tên' -F favorite=true)\" = 200 ]"
+
+echo "== trộn giọng"
+check "mix preview (slider 0.5)" bash -c "[ \"\$(curl -s -o $WORK/m.wav -w '%{http_code}' -X POST $B/api/mix -F voice_a='Adam bựa' -F voice_b='Trúc Ly' -F slider=0.5)\" = 200 ]"
+check "mix cùng một giọng → 400" expect_status 400 -X POST "$B/api/mix" -F voice_a="Adam bựa" -F voice_b="Adam bựa"
+check "mix lưu vào thư viện" bash -c "[ \"\$(curl -s -o $WORK/mix.json -w '%{http_code}' -X POST $B/api/mix/save -F voice_a='Adam bựa' -F voice_b=$LIB -F slider=0.3 -F name='Mix thử')\" = 200 ]"
+MIX=$(json "d['voice']" <"$WORK/mix.json" 2>/dev/null)
+check "giọng mix không có ref.wav, có emb.npz" bash -c "d=\"$DATA/voices/${MIX#lib:}\"; [ ! -e \$d/ref.wav ] && ls \$d | grep -q 'emb\\..*\\.npz'"
+check "tts bằng giọng mix" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/tts -F text='Giọng trộn.' -F engine=vieneu -F voice='$MIX')\" = 200 ]"
+
+echo "== hội thoại"
+cat >"$WORK/dlg.json" <<E
+{"script":"[Lan]: Xin chào anh.\n[Minh]: Chào em [cười].\n\n[Lan]: Tạm biệt nhé.",
+ "cast":{"Lan":{"engine":"vieneu","voice":"Trúc Ly"},"Minh":{"engine":"vieneu","voice":"Adam bựa"}},"gap_ms":300,"paragraph_gap_ms":700}
+E
+check "parse kịch bản" bash -c "curl -s -X POST $B/api/dialogue/parse -H 'Content-Type: application/json' -d @$WORK/dlg.json | $PY -c \"import sys,json; d=json.load(sys.stdin); assert d['speakers']==['Lan','Minh'] and len(d['lines'])==3 and d['lines'][2]['pause']=='paragraph'\""
+check "thiếu giọng → 400 kèm missing" bash -c "[ \"\$(curl -s -o $WORK/b -w '%{http_code}' -X POST $B/api/dialogue -H 'Content-Type: application/json' -d '{\"script\":\"[A]: x\",\"cast\":{}}')\" = 400 ] && grep -q missing $WORK/b"
+JOB=$(curl -s -X POST "$B/api/dialogue" -H 'Content-Type: application/json' -d @"$WORK/dlg.json" | json "d['job_id']" 2>/dev/null)
+check "tạo job hội thoại 3 dòng" test -n "$JOB"
+JS=$(wait_job "$JOB")
+check "job → done" test "$JS" = done
+check "audio tổng WAV 48 kHz mono" bash -c "curl -s -o $WORK/d.wav $B/api/dialogue/$JOB/audio && [ \"\$($PY -c \"import soundfile as sf; i=sf.info('$WORK/d.wav'); print(i.samplerate, i.channels)\")\" = '48000 1' ]"
+check "dùng lại cache (job 2: dòng cached)" bash -c "J2=\$(curl -s -X POST $B/api/dialogue -H 'Content-Type: application/json' -d @$WORK/dlg.json | $PY -c \"import sys,json; print(json.load(sys.stdin)['job_id'])\"); for _ in \$(seq 1 60); do s=\$(curl -s $B/api/dialogue/\$J2 | $PY -c \"import sys,json; d=json.load(sys.stdin); print(d['status'], all(l['cached'] for l in d['lines']))\"); case \"\$s\" in running*) sleep 1;; *) break;; esac; done; [ \"\$s\" = 'done True' ]"
+check "sinh lại dòng 2 (seed)" bash -c "curl -s -X POST $B/api/dialogue/$JOB/line/1 -H 'Content-Type: application/json' -d '{\"seed\":7}' | $PY -c \"import sys,json; d=json.load(sys.stdin); assert d['status']=='done' and d['lines'][1]['seed']==7\""
+check "lịch sử có bản hội thoại" bash -c "curl -s '$B/api/history?kind=dialogue' | $PY -c \"import sys,json; assert len(json.load(sys.stdin))>=1\""
+if [ -z "${SKIP_EDGE:-}" ]; then
+  cat >"$WORK/dlg2.json" <<E
+{"script":"[Lan]: Xin chào [cười].\n[Minh]: Chào em.","cast":{"Lan":{"engine":"edge","voice":"vi-VN-HoaiMyNeural"},"Minh":{"engine":"vieneu","voice":"Adam bựa"}}}
+E
+  JOB2=$(curl -s -X POST "$B/api/dialogue" -H 'Content-Type: application/json' -d @"$WORK/dlg2.json" | json "d['job_id']" 2>/dev/null)
+  check "hội thoại đa engine (edge + vieneu, MP3→WAV 48 kHz)" test "$(wait_job "$JOB2")" = done
+fi
+
+echo "== project"
+check "lưu project" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/projects -H 'Content-Type: application/json' -d '{\"name\":\"Smoke\",\"script\":\"[A]: x\",\"cast\":{}}')\" = 200 ]"
+check "mở project" bash -c "curl -s $B/api/projects/smoke | grep -q '\"script\"'"
+check "liệt kê project" bash -c "curl -s $B/api/projects | grep -q smoke"
+check "xoá project" expect_status 200 -X DELETE "$B/api/projects/smoke"
+
+echo "== dọn dẹp thư viện"
+check "xoá giọng mix" expect_status 200 -X DELETE "$B/api/library/${MIX#lib:}"
+check "xoá giọng clone" expect_status 200 -X DELETE "$B/api/library/${LIB#lib:}"
+check "giọng đã xoá → 404" expect_status 404 "$B/api/library/${LIB#lib:}/preview"
+
+echo
+echo "Kết quả: $PASS PASS, $FAIL FAIL"
+[ "$FAIL" -eq 0 ] || { echo "--- cuối server.log:"; tail -15 "$WORK/server.log"; exit 1; }
