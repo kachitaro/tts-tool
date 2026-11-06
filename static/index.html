@@ -88,6 +88,9 @@
   .hhead { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
   .hhead h2 { margin:0 !important; }
   .hact { display:flex; gap:6px; margin-top:8px; }
+  .pausebox { display:inline-flex; gap:6px; align-items:center; font-size:12.5px; color:var(--muted); }
+  .pausebox input[type=number] { width:72px; padding:3px 8px; }
+  .pausebox button { background:var(--accent); color:#fff; border:0; border-radius:999px; padding:3px 11px; font:inherit; cursor:pointer; }
   .warn-ic { color:var(--warn); cursor:help; }
   input[type=number] { width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:9px; padding:9px 10px; font:inherit; }
   .crow { display:grid; grid-template-columns:72px 1fr; gap:8px; align-items:center; margin-bottom:8px; }
@@ -428,22 +431,45 @@ function renderEngines() {
 function emotionBar(box, ta, tags, longPause = "\n") {
   box.replaceChildren();
   box.classList.remove("hidden");
+  const insert = (text) => {
+    const next = ta.value[ta.selectionEnd] ?? "";
+    ta.setRangeText(text.endsWith(" ") && /\s/.test(next) ? text.trimEnd() : text, ta.selectionStart, ta.selectionEnd, "end");
+    ta.focus();
+    ta.dispatchEvent(new Event("input")); // cập nhật bộ đếm / parse kịch bản
+  };
   const add = (label, text, title) => {
     const b = document.createElement("button");
     b.type = "button";
     b.textContent = label;
     if (title) b.title = title;
-    b.addEventListener("click", () => {
-      const next = ta.value[ta.selectionEnd] ?? "";
-      ta.setRangeText(text.endsWith(" ") && /\s/.test(next) ? text.trimEnd() : text, ta.selectionStart, ta.selectionEnd, "end");
-      ta.focus();
-      ta.dispatchEvent(new Event("input")); // cập nhật bộ đếm / parse kịch bản
-    });
+    b.addEventListener("click", () => insert(text));
     box.append(b);
+    return b;
   };
   for (const tag of tags) add(tag, tag);
-  add("Nghỉ ngắn", ", ", "Chèn dấu phẩy");
-  add("Nghỉ dài", longPause, longPause === "\n" ? "Chèn xuống dòng (nghỉ dài hơn)" : "Chèn dòng trống (nghỉ dài hơn)");
+  add("Ngắt nhẹ", ", ", "Chèn dấu phẩy");
+  add("Xuống đoạn", longPause, longPause === "\n" ? "Chèn xuống dòng (VieNeu tách đoạn, nghỉ ≥ 0,7 s)" : "Chèn dòng trống (nghỉ giữa đoạn)");
+  // "Nghỉ…": thẻ [nghỉ Ns] có độ dài chính xác (0.1–5 giây), dùng được với mọi engine.
+  const form = h("span", "pausebox hidden");
+  const num = document.createElement("input");
+  Object.assign(num, { type: "number", min: 0.1, max: 5, step: 0.1, value: 1, title: "Số giây (0.1–5)" });
+  const ok = h("button", "", "Chèn");
+  ok.type = "button";
+  const submit = () => {
+    const v = Math.round(+num.value * 10) / 10;
+    if (!(v >= 0.1 && v <= 5)) return num.focus();
+    insert(`[nghỉ ${v}s]`);
+    form.classList.add("hidden");
+  };
+  ok.addEventListener("click", submit);
+  num.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+    else if (e.key === "Escape") form.classList.add("hidden");
+  });
+  form.append(num, "giây", ok);
+  const open = add("Nghỉ…", "", "Chèn khoảng lặng đúng độ dài, vd. [nghỉ 1.5s]");
+  open.onclick = () => { form.classList.toggle("hidden"); if (!form.classList.contains("hidden")) { num.focus(); num.select(); } };
+  box.append(form);
 }
 const renderEmotionTags = (tags) => emotionBar($("emoBox"), $("text"), tags);
 const allEmotionTags = () => [...new Set(Object.values(state.engines).filter(e => e.available).flatMap(e => e.capabilities.emotion_tags || []))];
@@ -519,8 +545,13 @@ function historyItem(m) {
   const url = `/api/history/${m.id}/audio`;
   const audio = h("audio");
   audio.controls = true; audio.preload = "none"; audio.src = url;
-  const dl = h("a", "", `Tải ${m.ext.toUpperCase()}`);
-  dl.href = url; dl.download = `giong-noi.${m.ext}`;
+  const links = [[m.ext, url]];
+  if (m.has_mp3 && m.ext !== "mp3") links.push(["mp3", url + "?fmt=mp3"]); // bản có thẻ nghỉ: WAV + MP3
+  const dl = h("span", "", ...links.map(([ext, href], i) => {
+    const a = h("a", "", (i ? " · " : "") + `Tải ${ext.toUpperCase()}`);
+    a.href = href; a.download = `giong-noi.${ext}`;
+    return a;
+  }));
   return h("div", "item",
     h("div", "meta", h("span", "", `${histTitle(m)} · ${fmtTime(m.created_at)}`), dl),
     h("div", "txt", m.kind === "dialogue" ? m.script : m.text), audio,

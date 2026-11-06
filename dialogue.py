@@ -88,6 +88,10 @@ def parse_script(script: str, max_chars: int) -> list[Line]:
             text = raw.strip()
         if not text:  # "[Tên]:" không có lời: chỉ đổi người nói cho các dòng sau
             continue
+        try:
+            text_normalize.split_pauses(text)  # báo sớm thẻ [nghỉ …] sai khoảng
+        except ValueError as ex:
+            raise ScriptError(f"Dòng {n}: {ex}")
         lines.append(Line(len(lines), speaker, text, "" if not lines else "paragraph" if blank else "line"))
         blank = False
         if len(lines) > MAX_LINES:
@@ -113,10 +117,12 @@ def prepare_text(engine, text: str, normalize: bool = True) -> str:
     return re.sub(r"\s+([.,!?;:…])", r"\1", text)  # "Chào em [cười]." → "Chào em ." gây lỗi no-audio ở edge
 
 
-def line_key(engine, voice: str, text: str, speed: int) -> str:
+def line_key(engine, voice: str, text: str, speed: int, extra: str = "") -> str:
     """Đổi một trong engine / giọng / lời / tốc độ / mode / (variant, alpha của giọng mix) là không dùng cache cũ.
     created_at của giọng thư viện để giọng bị xoá rồi tạo lại cùng tên không dính cache cũ."""
     parts: dict = {"engine": engine.id, "voice": voice, "text": text, "speed": speed, "mode": engine.cache_tag()}
+    if extra:  # cao độ, hash file giọng mẫu… (đường đọc có thẻ nghỉ)
+        parts["extra"] = extra
     if voice.startswith(library.LIB_PREFIX):
         try:
             meta = library.get(voice[len(library.LIB_PREFIX):])
@@ -270,12 +276,89 @@ def line_path(job: Job, i: int) -> Path:
     return CACHE / f"{job.keys[i]}.wav"
 
 
+def _read_wav(path: Path) -> np.ndarray:
+    import soundfile as sf
+
+    return sf.read(str(path), dtype="float32")[0]
+
+
+# Lặng sẵn có ở mỗi đầu đoạn chữ sau to_line_audio: 0.03 s đệm + ~0.045 s đuôi/đầu âm dưới -40 dB (đo thực với edge và
+# VieNeu: khoảng lặng đo được = thẻ nghỉ + ~0.09 s khi chưa bù). Trừ phần này để [nghỉ Ns] đo ra đúng N giây.
+EDGE_PAD_S = 0.075
+
+
+def make_plan(engine, text: str, normalize: bool) -> list[tuple[str, object]]:
+    """Tách theo thẻ nghỉ; mỗi đoạn chữ qua prepare_text (bỏ thẻ cảm xúc không hỗ trợ, chuẩn hoá). Raise ValueError.
+    Đoạn chỉ còn dấu câu (vd. "!" sau thẻ nghỉ) bị bỏ vì engine không đọc được."""
+    plan: list[tuple[str, object]] = []
+    for kind, val in text_normalize.split_pauses(text):
+        if kind == "pause":
+            plan.append((kind, val))
+        elif (prepared := prepare_text(engine, val, normalize)) and re.search(r"\w", prepared):
+            plan.append(("text", prepared))
+    return plan or [("text", "")]
+
+
+def plan_key(plan: list[tuple[str, object]]) -> str:
+    return "\x1f".join(f"[nghỉ {v:g}s]" if k == "pause" else v for k, v in plan)
+
+
+async def synth_segment(engine, voice: str, text: str, speed: int, *, pitch: int = 0, extra: str = "",
+                        seed: int | None = None, force: bool = False, warnings: list | None = None,
+                        ref_audio: str | None = None) -> np.ndarray:
+    """Một đoạn chữ → audio 48 kHz đã cắt lặng + chuẩn hoá, qua cache của hội thoại (data/cache/<hash>.wav)."""
+    path = CACHE / f"{line_key(engine, voice, text, speed, f'p{pitch}|{extra}' if pitch or extra else '')}.wav"
+    if path.is_file() and not force:
+        path.touch()  # LRU
+        return await anyio.to_thread.run_sync(_read_wav, path)
+    sem = _sems.setdefault(engine.id, asyncio.Semaphore(1 if engine.local else EDGE_PARALLEL))
+    async with sem:
+        data, _ = await engine.synthesize(text, voice, speed, seed=seed, pitch=pitch, ref_audio=ref_audio,
+                                          warnings=warnings if warnings is not None else [])
+    wav = await anyio.to_thread.run_sync(to_line_audio, data)
+    await anyio.to_thread.run_sync(_write_wav, path, wav)
+    return wav
+
+
+async def render_plan(engine, voice: str, plan: list[tuple[str, object]], speed: int, **kw) -> np.ndarray:
+    """Sinh từng đoạn chữ, chèn khoảng lặng đúng độ dài ở thẻ nghỉ (đã trừ phần lặng đệm sát đoạn chữ kề bên)."""
+    parts: list[np.ndarray] = []
+    for idx, (kind, val) in enumerate(plan):
+        if kind == "text":
+            parts.append(await synth_segment(engine, voice, val, speed, **kw))
+            continue
+        pads = (idx > 0 and plan[idx - 1][0] == "text") + (idx + 1 < len(plan) and plan[idx + 1][0] == "text")
+        parts.append(np.zeros(int(max(0.0, val - pads * EDGE_PAD_S) * SR), dtype=np.float32))
+    return np.concatenate(parts)
+
+
+async def render_text(engine, voice: str, text: str, speed: int, normalize: bool, pitch: int,
+                      ref_audio: str | None, warnings: list) -> np.ndarray:
+    """Đường đọc cho văn bản có thẻ nghỉ (tab Đọc): cùng pipeline với dòng hội thoại, mọi engine."""
+    extra = ""
+    if ref_audio:
+        extra = "ref:" + hashlib.sha256(Path(ref_audio).read_bytes()).hexdigest()[:16]
+    return await render_plan(engine, voice, make_plan(engine, text, normalize), speed,
+                             pitch=pitch, extra=extra, warnings=warnings, ref_audio=ref_audio)
+
+
+def encode_outputs(wav: np.ndarray) -> tuple[bytes, bytes | None]:
+    """WAV 48 kHz mono + MP3 (None nếu máy không có ffmpeg)."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as d:
+        w, m = Path(d) / "o.wav", Path(d) / "o.mp3"
+        _write_wav(w, wav)
+        return w.read_bytes(), (m.read_bytes() if export_mp3(w, m) else None)
+
+
 async def _do_line(job: Job, i: int, force: bool = False, seed: int | None = None) -> None:
     line, st = job.lines[i], job.states[i]
     try:
         engine, voice = job.cast[line.speaker]
-        text = prepare_text(engine, line.text, job.normalize)
-        job.keys[i] = line_key(engine, voice, text, job.speed)
+        plan = make_plan(engine, line.text, job.normalize)
+        simple = len(plan) == 1 and plan[0][0] == "text"  # không có thẻ nghỉ: giữ khoá và đường cũ
+        job.keys[i] = line_key(engine, voice, plan[0][1] if simple else plan_key(plan), job.speed)
         path = line_path(job, i)
         st.seed = seed
         if path.is_file() and not force:
@@ -283,14 +366,13 @@ async def _do_line(job: Job, i: int, force: bool = False, seed: int | None = Non
             path.touch()  # LRU: lần dùng gần nhất
         else:
             st.status, st.cached = "running", False
-            if not text:  # dòng chỉ có thẻ cảm xúc mà engine không hỗ trợ → nghỉ ngắn
-                wav = np.zeros(int(0.4 * SR), dtype=np.float32)
+            if simple and not plan[0][1]:  # dòng chỉ có thẻ cảm xúc mà engine không hỗ trợ → nghỉ ngắn
+                await anyio.to_thread.run_sync(_write_wav, path, np.zeros(int(0.4 * SR), dtype=np.float32))
+            elif simple:  # synth_segment ghi thẳng vào file cache của dòng (cùng khoá)
+                await synth_segment(engine, voice, plan[0][1], job.speed, seed=seed, force=True)
             else:
-                sem = _sems.setdefault(engine.id, asyncio.Semaphore(1 if engine.local else EDGE_PARALLEL))
-                async with sem:
-                    data, _ = await engine.synthesize(text, voice, job.speed, seed=seed, warnings=[])
-                wav = await anyio.to_thread.run_sync(to_line_audio, data)
-            await anyio.to_thread.run_sync(_write_wav, path, wav)
+                wav = await render_plan(engine, voice, plan, job.speed, seed=seed, force=force)
+                await anyio.to_thread.run_sync(_write_wav, path, wav)
         st.seconds = round(path.stat().st_size / (2 * SR), 2)
         st.status = "done"
     except Exception as ex:

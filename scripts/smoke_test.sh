@@ -63,6 +63,32 @@ fi
 check "tts vieneu (wav 48 kHz)" bash -c "[ \"\$(curl -s -o $WORK/v.wav -w '%{http_code}' -X POST $B/api/tts -F text='Xin chào các bạn, đây là bản thử.' -F engine=vieneu -F voice='Trúc Ly')\" = 200 ] && [ \"\$($PY -c \"import soundfile as sf; print(sf.info('$WORK/v.wav').samplerate)\")\" = 48000 ]"
 check "tts vieneu có chuẩn hoá + thẻ cảm xúc" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/tts -F text='Giá 50k, \$100 ở TP. Hồ Chí Minh [cười].' -F engine=vieneu -F voice='Trúc Ly' -F normalize=true)\" = 200 ]"
 
+echo "== thẻ nghỉ [nghỉ 2s]"
+# Đo khoảng lặng dài nhất ở giữa audio (bỏ 0,15 s hai đầu) phải nằm trong 2 s ± 0,1 s; đầu ra là WAV 48 kHz
+pause_gap() {
+  curl -s -o "$WORK/p.wav" -D "$WORK/p.h" -X POST "$B/api/tts" -F text="Xin chào các bạn. [nghỉ 2s] Hẹn gặp lại nhé." -F engine="$1" -F voice="$2" || return 1
+  head -1 "$WORK/p.h" | grep -q ' 200' || { echo "HTTP: $(head -1 "$WORK/p.h")"; return 1; }
+  grep -qi 'content-type: audio/wav' "$WORK/p.h" || { echo "không phải WAV"; return 1; }
+  $PY - "$WORK/p.wav" <<'PYEOF'
+import sys, numpy as np, soundfile as sf
+w, sr = sf.read(sys.argv[1]); assert sr == 48000, sr
+win = int(0.01 * sr); n = len(w) // win
+env = np.abs(w[:n * win]).reshape(n, win).mean(1); quiet = env < 10 ** (-40 / 20)
+quiet[:15] = False; quiet[-15:] = False
+best = run = 0
+for q in quiet:
+    run = run + 1 if q else 0; best = max(best, run)
+gap = best * 0.01
+assert 1.9 <= gap <= 2.1, f"khoảng lặng {gap:.2f}s ngoài 2s ± 0.1"
+print(f"{gap:.2f}s")
+PYEOF
+}
+retry3() { for _ in 1 2 3; do "$@" && return 0; sleep 1; done; return 1; }   # edge-tts thỉnh thoảng lỗi tạm thời
+check "thẻ nghỉ 2s với vieneu: khoảng lặng 2 ± 0.1 s" pause_gap vieneu "Trúc Ly"
+[ -z "${SKIP_EDGE:-}" ] && check "thẻ nghỉ 2s với edge: khoảng lặng 2 ± 0.1 s" retry3 pause_gap edge vi-VN-HoaiMyNeural
+check "thẻ nghỉ ngoài 0.1–5 s → 400" expect_status 400 -X POST "$B/api/tts" -F text="a [nghỉ 7s] b" -F engine=vieneu -F voice="Trúc Ly"
+command -v ffmpeg >/dev/null && check "bản có thẻ nghỉ có MP3 trong lịch sử" bash -c "I=\$(curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; print(json.load(sys.stdin)[0]['id'])\"); [ \"\$(curl -s -o /dev/null -w '%{http_code}' '$B/api/history/'\$I'/audio?fmt=mp3')\" = 200 ]"
+
 echo "== lịch sử"
 check "lịch sử có bản tts" bash -c "curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; assert len(json.load(sys.stdin)) >= 1\""
 HID=$(curl -s "$B/api/history" | json "d[0]['id']" 2>/dev/null)
@@ -111,6 +137,18 @@ if [ -z "${SKIP_EDGE:-}" ]; then
 E
   JOB2=$(curl -s -X POST "$B/api/dialogue" -H 'Content-Type: application/json' -d @"$WORK/dlg2.json" | json "d['job_id']" 2>/dev/null)
   check "hội thoại đa engine (edge + vieneu, MP3→WAV 48 kHz)" test "$(wait_job "$JOB2")" = done
+  dlg_secs() {  # dlg_secs "<lời của Lan (edge)>" → "<trạng thái> <số giây của dòng>"
+    local j
+    j=$(curl -s -X POST "$B/api/dialogue" -H 'Content-Type: application/json' -d "$($PY -c 'import json,sys; print(json.dumps({"script": "[Lan]: " + sys.argv[1], "cast": {"Lan": {"engine": "edge", "voice": "vi-VN-HoaiMyNeural"}}}))' "$1")" | json "d['job_id']")
+    wait_job "$j" >/dev/null
+    curl -s "$B/api/dialogue/$j" | json "str(d['status']) + ' ' + str(d['lines'][0]['seconds'])"
+  }
+  pause_dialogue_diff() {
+    local a b
+    a=$(dlg_secs "Xin chào các bạn. [nghỉ 0.1s] Hẹn gặp lại nhé."); b=$(dlg_secs "Xin chào các bạn. [nghỉ 1.1s] Hẹn gặp lại nhé.")
+    $PY -c "import sys; a=sys.argv[1].split(); b=sys.argv[2].split(); assert a[0]==b[0]=='done', (a,b); assert 0.85 <= float(b[1])-float(a[1]) <= 1.15, (a,b); print(a,b)" "$a" "$b"
+  }
+  check "dòng hội thoại: [nghỉ 1.1s] dài hơn [nghỉ 0.1s] đúng khoảng 1 s" retry3 pause_dialogue_diff
 fi
 
 echo "== project"

@@ -220,8 +220,15 @@ async def tts(
     e = get_engine(engine)
     check_lib_voice(e, voice)
     synth_text = text_normalize.normalize(text) if normalize and e.capabilities().get("normalize") else text
+    pausey = text_normalize.has_pause(text)  # có thẻ [nghỉ Ns]: đi qua pipeline hội thoại (mọi engine)
+    if pausey:
+        try:
+            text_normalize.split_pauses(text)
+        except ValueError as ex:
+            raise HTTPException(400, str(ex))
 
     warnings: list[str] = []
+    extra_files: dict[str, bytes] = {}
     tmp_path = None
     try:
         if e.capabilities()["clone"] and ref_audio is not None and ref_audio.filename:
@@ -234,7 +241,15 @@ async def tts(
                 with tempfile.NamedTemporaryFile(delete=False, suffix=Path(ref_audio.filename).suffix or ".wav") as f:
                     f.write(raw)
                     tmp_path = f.name
-        data, mime = await e.synthesize(synth_text, voice, speed, pitch=pitch, ref_audio=tmp_path, warnings=warnings)
+        if pausey:
+            wav = await dialogue.render_text(e, voice, text, speed, normalize, pitch, tmp_path, warnings)
+            data, mp3 = await anyio.to_thread.run_sync(dialogue.encode_outputs, wav)
+            mime = "audio/wav"
+            if mp3:
+                extra_files["mp3"] = mp3
+            await anyio.to_thread.run_sync(dialogue.prune_cache)
+        else:
+            data, mime = await e.synthesize(synth_text, voice, speed, pitch=pitch, ref_audio=tmp_path, warnings=warnings)
     except HTTPException:
         raise
     except Exception as ex:
@@ -249,7 +264,8 @@ async def tts(
         headers["X-History-Id"] = history.save("tts", {
             "text": text, "engine": e.id, "voice": voice, "voice_label": await voice_label(e, voice) if voice else "",
             "speed": speed, "pitch": pitch, "normalize": normalize, "cloned_ref": bool(tmp_path),
-        }, data, ext)
+            "has_mp3": "mp3" in extra_files,
+        }, data, ext, extra_files)
     except OSError as ex:
         log.warning("Không lưu được lịch sử: %s", ex)
     return Response(data, media_type=mime, headers=headers)
@@ -557,9 +573,9 @@ def history_list(kind: str = ""):
 
 
 @app.get("/api/history/{item_id}/audio")
-def history_audio(item_id: str):
+def history_audio(item_id: str, fmt: str = ""):
     try:
-        path, ext = history.audio_path(item_id)
+        path, ext = history.audio_path(item_id, fmt or None)
     except KeyError:
         raise HTTPException(404, "Không tìm thấy bản trong lịch sử.")
     return FileResponse(path, media_type="audio/mpeg" if ext == "mp3" else "audio/wav", filename=f"giong-noi.{ext}")

@@ -39,3 +39,29 @@ def normalize(text: str) -> str:
     for pattern, repl in RULES:
         text = pattern.sub(repl, text)
     return text
+
+
+# ── thẻ nghỉ có độ dài: [nghỉ 0.5s], [nghỉ 2s], [nghỉ 1,5s] (0.1–5 giây) ──
+PAUSE_RE = re.compile(r"\[\s*nghỉ\s+(\d+(?:[.,]\d+)?)\s*s\s*\]", re.IGNORECASE)
+PAUSE_MIN, PAUSE_MAX = 0.1, 5.0
+
+
+def has_pause(text: str) -> bool:
+    return bool(PAUSE_RE.search(text))
+
+
+def split_pauses(text: str) -> list[tuple[str, object]]:
+    """Tách văn bản tại các thẻ nghỉ: [("text", "..."), ("pause", giây), ...]. Raise ValueError nếu thẻ ngoài 0.1–5 giây."""
+    out: list[tuple[str, object]] = []
+    pos = 0
+    for m in PAUSE_RE.finditer(text):
+        sec = float(m.group(1).replace(",", "."))
+        if not PAUSE_MIN <= sec <= PAUSE_MAX:
+            raise ValueError(f"Thẻ nghỉ phải từ {PAUSE_MIN:g} đến {PAUSE_MAX:g} giây (gặp {m.group(0)}).")
+        if m.start() > pos:
+            out.append(("text", text[pos:m.start()]))
+        out.append(("pause", sec))
+        pos = m.end()
+    if pos < len(text):
+        out.append(("text", text[pos:]))
+    return out
