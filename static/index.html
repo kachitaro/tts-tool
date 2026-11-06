@@ -130,6 +130,17 @@
   .chk { display:flex; gap:8px; align-items:flex-start; margin-top:14px; font-size:13.5px; cursor:pointer; }
   .chk input { margin-top:3px; accent-color:var(--accent); }
   .dlgbtns { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  .brow { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 10px; padding:8px 0; border-top:1px solid var(--line); align-items:center; }
+  .brow .bt { font-weight:600; overflow-wrap:anywhere; }
+  .brow .bh { grid-column:1 / -1; color:var(--muted); font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .brow .bm { color:var(--muted); font-size:12.5px; font-weight:400; margin-left:6px; }
+  .brow .bact { display:flex; gap:6px; flex-wrap:wrap; }
+  .crule { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto auto; gap:6px; margin-bottom:6px; align-items:center; }
+  #bookDetail .card { margin-top:14px; }
+  #bookDetail h3 { margin:0 0 6px; font-size:16px; }
+  #chapDlg { width:min(720px, 94vw); }
+  #chapDlg pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:60vh; overflow:auto; font:inherit; font-size:14px; line-height:1.6; margin:10px 0; }
+  #bookDetail .hhead h2 { text-transform:none; font-size:18px; color:var(--text); font-weight:600; }
   /* Điện thoại / máy tính bảng: ô soạn → cài đặt (nút tạo audio) → kết quả → lịch sử */
   @media (max-width: 820px) {
     .grid > div:first-child { display:contents; }
@@ -162,6 +173,7 @@
     <button data-tab="lib">Thư viện giọng</button>
     <button data-tab="mix">Tạo giọng mới</button>
     <button data-tab="dia">Hội thoại</button>
+    <button data-tab="book">Sách nói</button>
   </nav>
 
   <div id="tab-tts">
@@ -304,6 +316,89 @@
     <div class="msg" id="libMsg"></div>
     <div class="vgrid" id="libGrid"></div>
   </section>
+
+  <section id="tab-book" class="hidden">
+    <div id="bookList">
+      <div class="hhead"><h2>Truyện của bạn</h2><button class="btn pri" id="bookNew" type="button">+ Nhập truyện</button></div>
+      <div class="msg" id="bookListMsg"></div>
+      <div class="vgrid" id="bookGrid"></div>
+    </div>
+    <div id="bookDetail" class="hidden">
+      <div class="hhead"><button class="btn" id="bookBack" type="button">← Danh sách truyện</button><h2 id="bookName"></h2></div>
+      <div class="msg" id="bookMsg"></div>
+      <div class="card">
+        <h3>Cài đặt</h3>
+        <div class="row2">
+          <div><label class="lb">Tên truyện</label><input type="text" id="bkTitle" maxlength="200" /></div>
+          <div><label class="lb">Tác giả</label><input type="text" id="bkAuthor" maxlength="200" /></div>
+        </div>
+        <div class="row2">
+          <div><label class="lb">Giọng kể</label><select id="bkVoice"></select></div>
+          <div><label class="lb">Tốc độ</label><select id="bkSpeed"><option value="0">1x</option><option value="100">2x</option><option value="200">3x</option></select></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="bkNorm" checked /><span>Chuẩn hoá văn bản (chỉ giọng VieNeu)</span></label>
+        <label class="chk"><input type="checkbox" id="bkReadTitle" checked /><span>Đọc tiêu đề chương ở đầu mỗi chương</span></label>
+        <div class="dlgbtns"><button class="btn pri" id="bkSaveSettings" type="button">Lưu cài đặt</button></div>
+      </div>
+      <div class="card">
+        <h3>Làm sạch văn bản</h3>
+        <div class="hint">Bật/tắt từng quy tắc; áp dụng khi xem trước và khi xác nhận tách chương. Cài đặt lưu theo từng truyện.</div>
+        <div id="bkRules"></div>
+        <label class="lb">Khoảng nghỉ ở dấu ngăn cảnh (giây)</label>
+        <input type="number" id="bkSepPause" min="0.1" max="5" step="0.1" value="1.5" style="max-width:120px" />
+        <label class="lb">Quy tắc tuỳ chỉnh (regex → thay thế)</label>
+        <div id="bkCustom"></div>
+        <button class="btn" id="bkAddRule" type="button">+ Thêm quy tắc</button>
+      </div>
+      <div class="card">
+        <h3>Tách chương</h3>
+        <div class="row2">
+          <div><label class="lb">Cách tách</label>
+            <select id="bkMode"><option value="regex">Theo tiêu đề chương (regex)</option><option value="per_file">Mỗi file một chương</option></select></div>
+          <div></div>
+        </div>
+        <label class="lb">Regex tiêu đề chương (khớp từ đầu dòng, không phân biệt hoa thường)</label>
+        <div class="mixrow"><input type="text" id="bkRegex" spellcheck="false" /><button class="btn" id="bkRegexDefault" type="button">Mặc định</button></div>
+        <div class="mixbtns">
+          <button class="btn pri" id="bkPreview" type="button">Xem trước chương</button>
+          <button class="btn" id="bkOpsReset" type="button">Bỏ gộp/tách thủ công</button>
+        </div>
+        <div id="bkPreviewBox" class="hidden" style="margin-top:12px">
+          <div class="hint" id="bkStats"></div>
+          <div id="bkRows"></div>
+          <div class="dlgbtns"><button class="btn pri" id="bkConfirm" type="button">Xác nhận tách chương</button></div>
+        </div>
+      </div>
+      <div class="card hidden" id="bkChapCard">
+        <h3 id="bkChapTitle">Danh sách chương</h3>
+        <div id="bkChapters"></div>
+      </div>
+    </div>
+  </section>
+
+  <dialog id="bookDlg">
+    <form id="bookForm" method="dialog">
+      <h3>Nhập truyện</h3>
+      <label class="lb">File truyện (.txt hoặc .epub, chọn nhiều file .txt nếu mỗi file là một chương)</label>
+      <input type="file" id="bookFiles" accept=".txt,.text,.epub" multiple />
+      <div class="hint">Tự dò encoding UTF-8 / UTF-16 / GB18030 / Windows-1258.</div>
+      <label class="lb">Tên truyện (để trống: lấy từ file)</label>
+      <input type="text" id="bookTitleIn" maxlength="200" />
+      <label class="lb">Tác giả</label>
+      <input type="text" id="bookAuthorIn" maxlength="200" />
+      <div class="msg err" id="bookErr"></div>
+      <div class="dlgbtns">
+        <button type="button" class="btn" id="bookCancel">Huỷ</button>
+        <button type="submit" class="btn pri" id="bookImport">Nhập</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="chapDlg">
+    <h3 id="chapTitle"></h3>
+    <pre id="chapText"></pre>
+    <div class="dlgbtns"><button type="button" class="btn" id="chapClose">Đóng</button></div>
+  </dialog>
 
   <dialog id="dlg">
     <form id="dlgForm" method="dialog">
@@ -629,11 +724,13 @@ const libMsg = (t, cls = "") => { $("libMsg").textContent = t; $("libMsg").class
 const isLib = (v) => v.id.startsWith("lib:");
 
 function showTab(name) {
-  for (const id of ["tts", "lib", "mix", "dia"]) $("tab-" + id).classList.toggle("hidden", id !== name);
+  for (const id of ["tts", "lib", "mix", "dia", "book"]) $("tab-" + id).classList.toggle("hidden", id !== name);
   document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  document.querySelector(".tabs .on")?.scrollIntoView({ inline: "center", block: "nearest" }); // 5 tab: trên điện thoại thanh tab cuộn ngang
   if (name === "lib") loadLibrary();
   if (name === "mix") loadMix();
   if (name === "dia") loadDia();
+  if (name === "book") loadBooks();
 }
 
 async function loadLibrary() {
@@ -1182,6 +1279,209 @@ $("diaOpen").addEventListener("click", openProject);
 $("diaDelProj").addEventListener("click", deleteProject);
 $("histClear").addEventListener("click", () => clearHistory("tts"));
 $("diaHistClear").addEventListener("click", () => clearHistory("dialogue"));
+
+// ───────────── Sách nói ─────────────
+const bk = { book: null, ops: [], clean: null, voices: [], prev: null };
+const bkMsg = (t, cls = "") => { $("bookMsg").textContent = t; $("bookMsg").className = "msg " + cls; };
+const fmtDur = (s) => (s >= 3600 ? `${(s / 3600).toFixed(1)} giờ` : s >= 60 ? `${Math.round(s / 60)} phút` : `${s} giây`);
+const STAT_LABEL = { control_chars: "chuẩn hoá ký tự", url_lines: "dòng URL đã bỏ", credit_lines: "dòng nguồn/dịch giả đã bỏ",
+  separators: "dấu ngăn cảnh → [nghỉ]", dup_lines: "dòng trùng đã bỏ", join_lines: "dòng đã gộp", custom: "chỗ thay thế tuỳ chỉnh" };
+const STATUS_LABEL = { pending: "chưa tạo", running: "đang tạo", done: "đã xong", error: "lỗi" };
+
+async function loadBooks() {
+  try {
+    const list = await (await api("/api/books")).json();
+    $("bookGrid").replaceChildren(...list.map(bookCard));
+    if (!list.length) $("bookGrid").append(h("div", "hint", "Chưa có truyện nào. Bấm \"Nhập truyện\" để bắt đầu."));
+  } catch (e) { $("bookListMsg").textContent = e.message; $("bookListMsg").className = "msg err"; }
+}
+
+function bookCard(b) {
+  const meta = [b.author, b.status === "ready" ? `${b.chapters} chương · ${b.chars.toLocaleString("vi-VN")} ký tự` : "chưa tách chương"].filter(Boolean).join(" · ");
+  const name = h("div", "vname", b.title);
+  if (b.status !== "ready") name.append(h("span", "badge", "Nháp"));
+  return h("div", "vcard", name, h("div", "vmeta", meta),
+    h("div", "vact", btn("Mở", "Mở truyện", () => openBook(b.id), "pri"), btn("🗑", "Xoá truyện", () => deleteBook(b))));
+}
+
+async function deleteBook(b) {
+  if (!confirm(`Xoá truyện "${b.title}" cùng toàn bộ chương? Không thể hoàn tác.`)) return;
+  try { await api("/api/books/" + b.id, { method: "DELETE" }); loadBooks(); }
+  catch (e) { $("bookListMsg").textContent = e.message; }
+}
+
+async function openBook(id) {
+  try {
+    bk.book = await (await api("/api/books/" + id)).json();
+    if (!bk.voices.length) bk.voices = await (await api("/api/voices")).json();
+  } catch (e) { return alert(e.message); }
+  const b = bk.book;
+  bk.ops = [...(b.split.ops || [])]; bk.clean = structuredClone(b.clean); bk.prev = null;
+  $("bookList").classList.add("hidden"); $("bookDetail").classList.remove("hidden");
+  $("bookName").textContent = b.title; bkMsg("");
+  $("bkTitle").value = b.title; $("bkAuthor").value = b.author || ""; $("bkSpeed").value = String(b.speed);
+  $("bkNorm").checked = b.normalize; $("bkReadTitle").checked = b.read_title;
+  $("bkMode").value = b.split.mode; $("bkRegex").value = b.split.regex;
+  const key = `${b.voice.engine}|${b.voice.voice}`, sel = $("bkVoice");
+  sel.replaceChildren(...bk.voices.map(v => voiceOpt(mixLabel(v), v, diaKey(v))));
+  if (![...sel.options].some(o => o.value === key)) sel.prepend(new Option(`${b.voice.voice} (không có trong danh sách)`, key));
+  sel.value = key;
+  renderRules(); renderBookChapters();
+  $("bkPreviewBox").classList.add("hidden");
+  if (b.status !== "ready") bkPreview(); // truyện mới nhập: xem trước luôn
+}
+
+async function saveSettings() {
+  const { engine, voice } = diaSplit($("bkVoice").value);
+  try {
+    bk.book = { ...bk.book, ...(await (await api("/api/books/" + bk.book.id, { method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: $("bkTitle").value, author: $("bkAuthor").value, voice: { engine, voice }, speed: +$("bkSpeed").value,
+        normalize: $("bkNorm").checked, read_title: $("bkReadTitle").checked, clean: bk.clean }) })).json()) };
+    $("bookName").textContent = bk.book.title;
+    bkMsg("Đã lưu cài đặt.", "ok");
+  } catch (e) { bkMsg(e.message, "err"); }
+}
+
+function renderRules() {
+  const catalog = bk.book.rules_catalog;
+  $("bkRules").replaceChildren(...catalog.map(r => {
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = !!bk.clean.rules[r.name];
+    cb.addEventListener("change", () => { bk.clean.rules[r.name] = cb.checked; });
+    const label = h("label", "chk", cb, h("span", "", r.label));
+    label.style.marginTop = "8px";
+    return label;
+  }));
+  $("bkSepPause").value = bk.clean.separator_pause;
+  renderCustom();
+}
+
+function renderCustom() {
+  $("bkCustom").replaceChildren(...bk.clean.custom.map((r, i) => {
+    const pat = document.createElement("input"), rep = document.createElement("input"), on = document.createElement("input");
+    pat.type = rep.type = "text"; pat.placeholder = "regex"; rep.placeholder = "thay bằng"; pat.value = r.pattern; rep.value = r.replace;
+    on.type = "checkbox"; on.checked = r.enabled; on.title = "Bật";
+    pat.addEventListener("input", () => { r.pattern = pat.value; });
+    rep.addEventListener("input", () => { r.replace = rep.value; });
+    on.addEventListener("change", () => { r.enabled = on.checked; });
+    return h("div", "crule", pat, rep, on, btn("✕", "Xoá quy tắc", () => { bk.clean.custom.splice(i, 1); renderCustom(); }));
+  }));
+}
+
+const bkBody = () => ({ regex: $("bkRegex").value, mode: $("bkMode").value, ops: bk.ops, clean: bk.clean });
+
+async function bkPreview() {
+  try {
+    const p = await (await api(`/api/books/${bk.book.id}/preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bkBody()) })).json();
+    bk.prev = p;
+    renderPreview();
+    bkMsg("");
+  } catch (e) { bkMsg(e.message, "err"); return false; }
+  return true;
+}
+
+function renderPreview() {
+  const p = bk.prev;
+  $("bkPreviewBox").classList.remove("hidden");
+  const stats = Object.entries(p.stats).map(([k, n]) => `${n} ${STAT_LABEL[k] || k}`).join(" · ");
+  $("bkStats").textContent = `${p.chapters.length} chương · ${p.total_chars.toLocaleString("vi-VN")} ký tự · ~${fmtDur(Math.round(p.total_chars / 15))}` +
+    (p.dropped ? ` · bỏ ${p.dropped} đoạn rỗng/quá ngắn` : "") + (stats ? ` · Làm sạch: ${stats}` : "");
+  $("bkConfirm").textContent = `Xác nhận tách ${p.chapters.length} chương`;
+  $("bkRows").replaceChildren(...p.chapters.map((c, k) => {
+    const acts = h("div", "bact", btn("Tách…", "Tách chương này tại một dòng", () => bkSplit(c)));
+    if (k + 1 < p.chapters.length) acts.prepend(btn("Gộp với chương sau", "Gộp chương này với chương kế tiếp", () => bkMerge(k)));
+    return h("div", "brow", h("div", "bt", `${c.n}. ${c.title || "(không tiêu đề)"}`, h("span", "bm", `${c.chars.toLocaleString("vi-VN")} ký tự · ~${fmtDur(c.est_seconds)}`)), acts, h("div", "bh", c.head));
+  }));
+}
+
+async function bkOp(ops) {
+  const before = bk.ops.length;
+  bk.ops.push(...ops);
+  if (!(await bkPreview())) bk.ops.length = before; // thao tác lỗi (vd. không thấy dòng): hoàn tác
+}
+
+function bkMerge(k) { // gộp luôn các đoạn rỗng bị bỏ nằm giữa hai chương
+  const a = bk.prev.chapters[k].raw, b = bk.prev.chapters[k + 1].raw;
+  return bkOp(Array.from({ length: b - a }, () => ({ op: "merge", i: a })));
+}
+
+function bkSplit(c) {
+  const needle = prompt("Tách chương tại dòng đầu tiên có chứa đoạn văn bản này (phần mới bắt đầu từ dòng đó):");
+  if (!needle) return;
+  const title = prompt("Tiêu đề phần mới (có thể để trống):") || "";
+  return bkOp([{ op: "split", i: c.raw, contains: needle, title }]);
+}
+
+async function bkConfirm() {
+  if (bk.book.status === "ready" && !confirm("Tách lại chương sẽ thay toàn bộ chương hiện có (và trạng thái tạo audio). Tiếp tục?")) return;
+  try {
+    await api(`/api/books/${bk.book.id}/chapters`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(bkBody()) });
+    await openBook(bk.book.id);
+    bkMsg("Đã tách chương.", "ok");
+  } catch (e) { bkMsg(e.message, "err"); }
+}
+
+function renderBookChapters() {
+  const list = bk.book.chapters_list || [];
+  $("bkChapCard").classList.toggle("hidden", !list.length);
+  $("bkChapTitle").textContent = `Danh sách chương (${list.length})`;
+  $("bkChapters").replaceChildren(...list.map(c => h("div", "brow",
+    h("div", "bt", `${c.n}. ${c.title || "(không tiêu đề)"}`,
+      h("span", "bm", `${c.chars.toLocaleString("vi-VN")} ký tự · ~${fmtDur(c.est_seconds)} · ${STATUS_LABEL[c.status] || c.status}`)),
+    h("div", "bact", btn("▶", "Nghe thử đầu chương", (b) => playChapter(c.n, b)), btn("Xem", "Xem văn bản đã làm sạch", () => viewChapter(c.n))))));
+}
+
+async function playChapter(n, b) {
+  player?.pause();
+  const old = b.textContent;
+  b.disabled = true; b.textContent = "…";
+  try {
+    const blob = await (await api(`/api/books/${bk.book.id}/chapters/${n}/sample`)).blob();
+    player = new Audio(URL.createObjectURL(blob));
+    await player.play();
+    bkMsg("");
+  } catch (e) { bkMsg(e.message, "err"); }
+  finally { b.disabled = false; b.textContent = old; }
+}
+
+async function viewChapter(n) {
+  try {
+    const c = await (await api(`/api/books/${bk.book.id}/chapters/${n}`)).json();
+    $("chapTitle").textContent = `${c.n}. ${c.title || "(không tiêu đề)"}`;
+    $("chapText").textContent = c.reading_text;
+    $("chapDlg").showModal();
+  } catch (e) { bkMsg(e.message, "err"); }
+}
+
+async function importBook(e) {
+  e.preventDefault();
+  const files = $("bookFiles").files;
+  if (!files.length) return ($("bookErr").textContent = "Hãy chọn ít nhất một file.");
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  fd.append("title", $("bookTitleIn").value); fd.append("author", $("bookAuthorIn").value);
+  const ok = $("bookImport");
+  ok.disabled = true; ok.textContent = "Đang nhập…"; $("bookErr").textContent = "";
+  try {
+    const b = await (await api("/api/books/import", { method: "POST", body: fd })).json();
+    $("bookDlg").close();
+    await openBook(b.id);
+  } catch (ex) { $("bookErr").textContent = ex.message; }
+  finally { ok.disabled = false; ok.textContent = "Nhập"; }
+}
+
+$("bookNew").addEventListener("click", () => { $("bookFiles").value = ""; $("bookTitleIn").value = ""; $("bookAuthorIn").value = ""; $("bookErr").textContent = ""; $("bookDlg").showModal(); });
+$("bookForm").addEventListener("submit", importBook);
+$("bookCancel").addEventListener("click", () => $("bookDlg").close());
+$("chapClose").addEventListener("click", () => $("chapDlg").close());
+$("bookBack").addEventListener("click", () => { $("bookDetail").classList.add("hidden"); $("bookList").classList.remove("hidden"); loadBooks(); });
+$("bkSaveSettings").addEventListener("click", saveSettings);
+$("bkPreview").addEventListener("click", bkPreview);
+$("bkConfirm").addEventListener("click", bkConfirm);
+$("bkOpsReset").addEventListener("click", () => { bk.ops = []; bkPreview(); });
+$("bkRegexDefault").addEventListener("click", () => { $("bkRegex").value = bk.book.default_regex; });
+$("bkAddRule").addEventListener("click", () => { bk.clean.custom.push({ pattern: "", replace: "", enabled: true }); renderCustom(); });
+$("bkSepPause").addEventListener("input", () => { bk.clean.separator_pause = +$("bkSepPause").value; });
 </script>
 </body>
 </html>

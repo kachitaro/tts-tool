@@ -1,0 +1,586 @@
+"""Sách nói (Phase 6a): nhập truyện .txt/.epub, tách chương, làm sạch.
+
+data/books/<book_id>/book.json          cài đặt + nguồn + kết quả tách chương
+data/books/<book_id>/source/            file gốc (giữ nguyên)
+data/books/<book_id>/chapters/<nnnn>.txt   văn bản chương đã làm sạch (không gồm tiêu đề)
+data/books/<book_id>/chapters/<nnnn>.json {n, title, chars, status}
+
+Pipeline: nguồn → giải mã (dò encoding) → [chuẩn hoá ký tự] → tách chương → làm sạch từng chương → ghi.
+EPUB đọc bằng thư viện chuẩn (zipfile + xml.etree + html.parser): không thêm phụ thuộc.
+"""
+
+from __future__ import annotations
+
+import html.parser
+import io
+import json
+import math
+import re
+import shutil
+import threading
+import unicodedata
+import zipfile
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote
+
+import library
+
+BOOKS = library.DATA / "books"
+MAX_FILE_BYTES = 100 * 1024 * 1024
+MAX_FILES = 5000
+MAX_UNZIPPED_BYTES = 300 * 1024 * 1024
+MIN_CHAPTER_CHARS = 20       # chương ngắn hơn (mục lục, trang bìa) bị bỏ
+MIN_INTRO_CHARS = 100        # phần trước chương đầu tiên chỉ giữ nếu đủ dài ("Mở đầu")
+MAX_TITLE_CHARS = 150        # dòng dài hơn không coi là tiêu đề chương
+CHARS_PER_SEC = 15.0         # ước tính tốc độ đọc (đo: "Xin chào các bạn." ≈ 1,1 s); 6c sẽ thay bằng RTF đo thật
+SOURCE_EXTS = {".txt": "txt", ".text": "txt", ".epub": "epub"}
+_lock = threading.Lock()
+
+
+class BookError(ValueError):
+    """Lỗi do dữ liệu người dùng (server trả 400)."""
+
+
+class NotFound(LookupError):
+    pass
+
+
+# ───────────────────────────── cài đặt mặc định ─────────────────────────────
+
+_NUM = r"(?:\d+|[IVXLCDM]+|[０-９]+)"
+_ZH_NUM = r"[0-9０-９零〇一二三四五六七八九十百千万两兩]+"
+# Chương 12 | Chương 12: … | Chương XII | 第12章 | 第十二回 | Quyển 2 Chương 5 | Hồi 3
+DEFAULT_SPLIT_REGEX = (
+    r"^\s*(?:(?:Quyển|Quyen|Tập|Tap)\s+" + _NUM + r"\s*[,:;.\-–—]?\s*)?"
+    r"(?:(?:Chương|Chuong|Hồi|Hoi)\s+" + _NUM + r"\b|第\s*" + _ZH_NUM + r"\s*[章回节節])"
+)
+
+RULES: list[tuple[str, str]] = [
+    ("control_chars", "Bỏ ký tự điều khiển / khoảng trắng đặc biệt, chuẩn hoá Unicode (NFC)"),
+    ("quotes", "Chuẩn hoá dấu ngoặc kép (“ ” « » 「 」 → \")"),
+    ("ellipsis", "Chuẩn hoá dấu ba chấm (..., 。。。, …… → …)"),
+    ("url_lines", "Bỏ dòng chứa URL / tên miền"),
+    ("credit_lines", "Bỏ dòng chứa \"nguồn:\" hoặc \"truyện được dịch bởi\""),
+    ("separators", "Dòng chỉ có dấu ngăn cảnh (***, ---, ~~~, ooo, ♦…) → [nghỉ Ns]"),
+    ("dup_lines", "Bỏ dòng trùng lặp (liền nhau, hoặc lặp ở nhiều chương như đầu/cuối trang)"),
+    ("join_lines", "Gộp dòng bị ngắt giữa câu (dòng sau bắt đầu bằng chữ thường)"),
+]
+
+
+def default_settings() -> dict:
+    return {
+        "read_title": True,
+        "split": {"regex": DEFAULT_SPLIT_REGEX, "mode": "regex", "ops": []},
+        "clean": {"rules": {name: True for name, _ in RULES}, "custom": [], "separator_pause": 1.5},
+    }
+
+
+# ───────────────────────────── giải mã ─────────────────────────────
+
+def _cjk_ratio(text: str) -> float:
+    chars = [c for c in text if not c.isspace()]
+    if not chars:
+        return 0.0
+    return sum("\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf" for c in chars) / len(chars)
+
+
+def decode_bytes(data: bytes) -> tuple[str, str]:
+    """bytes → (văn bản NFC, tên encoding). Dò UTF-8 / UTF-16 / GB18030 / Windows-1258."""
+    if data.startswith(b"\xef\xbb\xbf"):
+        return unicodedata.normalize("NFC", data[3:].decode("utf-8", "replace")), "utf-8"
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return unicodedata.normalize("NFC", data.decode("utf-16", "replace")), "utf-16"
+    head = data[:8192]
+    if len(head) >= 4 and head.count(b"\x00") > len(head) * 0.2:  # UTF-16 không BOM: byte 0 ở vị trí chẵn (BE) hoặc lẻ (LE)
+        enc = "utf-16-be" if head[0::2].count(b"\x00") > head[1::2].count(b"\x00") else "utf-16-le"
+        return unicodedata.normalize("NFC", data.decode(enc, "replace")), "utf-16"
+    try:
+        return unicodedata.normalize("NFC", data.decode("utf-8")), "utf-8"
+    except UnicodeDecodeError:
+        pass
+    try:
+        gb = data.decode("gb18030")
+        if _cjk_ratio(gb) >= 0.5:  # chữ Hán chiếm đa số; byte cp1258 giải mã bằng GB18030 chỉ ra vài chữ Hán rải rác
+            return unicodedata.normalize("NFC", gb), "gb18030"
+    except UnicodeDecodeError:
+        pass
+    return unicodedata.normalize("NFC", data.decode("cp1258", "replace")), "windows-1258"
+
+
+# ───────────────────────────── đọc nguồn ─────────────────────────────
+
+@dataclass
+class Doc:
+    name: str
+    text: str
+    title: str = ""
+
+
+class _Extract(html.parser.HTMLParser):
+    """XHTML → văn bản: thẻ khối thành xuống dòng, bỏ script/style; nhớ tiêu đề (h1–h3 / title) đầu tiên."""
+    BLOCK = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "blockquote", "hr"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.heading = ""     # h1–h3 đầu tiên
+        self.doc_title = ""   # <title> (dự phòng khi không có heading)
+        self._skip = 0
+        self._in: str | None = None
+        self._buf: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._skip += 1
+        if tag in self.BLOCK:
+            self.parts.append("\n")
+        if tag in ("h1", "h2", "h3", "title") and self._in is None and not (self.doc_title if tag == "title" else self.heading):
+            self._in, self._buf = tag, []
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self._skip:
+            self._skip -= 1
+        if tag in self.BLOCK:
+            self.parts.append("\n")
+        if tag == self._in:
+            text = " ".join("".join(self._buf).split())
+            if tag == "title":
+                self.doc_title = text
+            else:
+                self.heading = text
+            self._in = None
+
+    def handle_data(self, data):
+        if self._skip:
+            return
+        if self._in:
+            self._buf.append(data)
+        if self._in != "title":  # nội dung <title> trong <head> không phải văn bản truyện
+            self.parts.append(data)
+
+
+def read_epub(data: bytes) -> tuple[list[Doc], dict]:
+    """EPUB → (các tài liệu theo thứ tự spine, {title, author}). Raise BookError nếu không phải EPUB hợp lệ."""
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+        if sum(i.file_size for i in z.infolist()) > MAX_UNZIPPED_BYTES:
+            raise BookError("File EPUB giải nén quá lớn.")
+        root = ET.fromstring(z.read("META-INF/container.xml"))
+        opf_path = next(e.get("full-path") for e in root.findall(".//{*}rootfile"))
+        opf = ET.fromstring(z.read(opf_path))
+        base = PurePosixPath(opf_path).parent
+        manifest = {i.get("id"): i.get("href") for i in opf.findall(".//{*}item")}
+        spine = [r.get("idref") for r in opf.findall(".//{*}itemref") if r.get("linear") != "no"]
+        meta = {"title": "", "author": ""}
+        for key, tag in (("title", "{*}title"), ("author", "{*}creator")):
+            el = opf.find(f".//{tag}")
+            if el is not None and el.text:
+                meta[key] = el.text.strip()
+        docs: list[Doc] = []
+        for idref in spine:
+            href = manifest.get(idref)
+            if not href:
+                continue
+            path = str(base / unquote(href.split("#")[0]))
+            if path not in z.namelist():
+                continue
+            parser = _Extract()
+            parser.feed(decode_bytes(z.read(path))[0])
+            text = "".join(parser.parts)
+            docs.append(Doc(PurePosixPath(path).stem, text, parser.heading or parser.doc_title))
+    except BookError:
+        raise
+    except (zipfile.BadZipFile, KeyError, StopIteration, ET.ParseError) as ex:
+        raise BookError(f"Không đọc được EPUB: {type(ex).__name__}.") from ex
+    return docs, meta
+
+
+def _natural_key(name: str):
+    return [int(p) if p.isdigit() else p.lower() for p in re.split(r"(\d+)", name)]
+
+
+def _safe_name(name: str) -> str:
+    stem = re.sub(r"[^\w.\-]+", "_", Path(name).name, flags=re.UNICODE).strip("._") or "file"
+    return stem[:80]
+
+
+def _dir(book_id: str) -> Path:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", book_id):
+        raise NotFound(book_id)
+    return BOOKS / book_id
+
+
+def _write_json(path: Path, data) -> None:
+    library._write_json(path, data)
+
+
+def load_docs(book_id: str) -> list[Doc]:
+    book = get(book_id)
+    docs: list[Doc] = []
+    for s in book["sources"]:
+        raw = (_dir(book_id) / "source" / s["file"]).read_bytes()
+        if s["kind"] == "epub":
+            docs += read_epub(raw)[0]
+        else:
+            docs.append(Doc(Path(s["name"]).stem, decode_bytes(raw)[0]))
+    return docs
+
+
+# ───────────────────────────── lưu trữ ─────────────────────────────
+
+def get(book_id: str) -> dict:
+    path = _dir(book_id) / "book.json"
+    if not path.is_file():
+        raise NotFound(book_id)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save(book: dict) -> None:
+    with _lock:
+        _write_json(_dir(book["id"]) / "book.json", book)
+
+
+def list_books() -> list[dict]:
+    out = []
+    for p in sorted(BOOKS.glob("*/book.json")) if BOOKS.is_dir() else []:
+        try:
+            b = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        out.append({k: b.get(k) for k in ("id", "title", "author", "status", "created_at")}
+                   | {"chapters": b.get("chapters", {}).get("count", 0), "chars": b.get("chapters", {}).get("chars", 0)})
+    return sorted(out, key=lambda b: b["created_at"] or "", reverse=True)
+
+
+def delete(book_id: str) -> None:
+    with _lock:
+        get(book_id)
+        shutil.rmtree(_dir(book_id))
+
+
+def import_files(files: list[tuple[str, bytes]], title: str, author: str, voice: dict) -> dict:
+    """Tạo truyện nháp từ các file .txt/.epub (giữ file gốc trong source/). Chưa tách chương."""
+    if not files:
+        raise BookError("Chưa chọn file nào.")
+    if len(files) > MAX_FILES:
+        raise BookError(f"Tối đa {MAX_FILES} file mỗi lần nhập.")
+    for name, data in files:
+        if SOURCE_EXTS.get(Path(name).suffix.lower()) is None:
+            raise BookError(f"'{name}': chỉ nhận .txt và .epub.")
+        if len(data) > MAX_FILE_BYTES:
+            raise BookError(f"'{name}' quá lớn (tối đa {MAX_FILE_BYTES // 2**20} MB).")
+    files = sorted(files, key=lambda f: _natural_key(f[0]))
+    sources, epub_meta = [], {}
+    for i, (name, data) in enumerate(files, 1):
+        kind = SOURCE_EXTS[Path(name).suffix.lower()]
+        if kind == "epub":
+            docs, meta = read_epub(data)
+            epub_meta = epub_meta or meta
+            info = {"encoding": "epub", "docs": len(docs)}
+        else:
+            text, enc = decode_bytes(data)
+            info = {"encoding": enc, "chars": len(text)}
+        sources.append({"name": name, "file": f"{i:04d}-{_safe_name(name)}", "kind": kind, "bytes": len(data), **info})
+    title = title.strip() or epub_meta.get("title") or Path(files[0][0]).stem
+    author = author.strip() or epub_meta.get("author", "")
+    with _lock:
+        base = library.slugify(title)
+        book_id, n = base, 2
+        while (BOOKS / book_id).exists():
+            book_id, n = f"{base}-{n}", n + 1
+        d = BOOKS / book_id
+        (d / "source").mkdir(parents=True)
+        (d / "chapters").mkdir()
+        for s, (_, data) in zip(sources, files):
+            (d / "source" / s["file"]).write_bytes(data)
+        book = {
+            "id": book_id, "title": title[:200], "author": author[:200], "voice": voice, "speed": 0, "normalize": True,
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "status": "draft",
+            "sources": sources, "chapters": {"count": 0, "chars": 0}, **default_settings(),
+        }
+        _write_json(d / "book.json", book)
+    docs = load_docs(book_id)
+    # Gợi ý chế độ tách: nhiều file hoặc regex không tìm thấy ≥ 2 chương mà có nhiều tài liệu → mỗi file một chương
+    if len(files) > 1 or (len(docs) > 1 and len(split_regex(docs, book["split"]["regex"])) < 2):
+        book["split"]["mode"] = "per_file"
+    save(book)
+    return book
+
+
+# ───────────────────────────── tách chương ─────────────────────────────
+
+@dataclass
+class Raw:
+    title: str
+    lines: list[str] = field(default_factory=list)
+
+
+def compile_split(pattern: str) -> re.Pattern:
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error as ex:
+        raise BookError(f"Regex tách chương không hợp lệ: {ex}") from ex
+
+
+def _is_heading(rx: re.Pattern, line: str) -> bool:
+    s = line.strip()
+    return 0 < len(s) <= MAX_TITLE_CHARS and bool(rx.match(s))
+
+
+def split_regex(docs: list[Doc], pattern: str) -> list[Raw]:
+    rx = compile_split(pattern)
+    chapters: list[Raw] = [Raw("")]
+    for doc in docs:
+        for line in doc.text.split("\n"):
+            if _is_heading(rx, line):
+                chapters.append(Raw(line.strip()))
+            else:
+                chapters[-1].lines.append(line)
+    return chapters
+
+
+def split_per_file(docs: list[Doc], pattern: str) -> list[Raw]:
+    rx = compile_split(pattern)
+    out = []
+    for doc in docs:
+        lines = doc.text.split("\n")
+        first = next((i for i, l in enumerate(lines) if l.strip()), None)
+        if first is not None and _is_heading(rx, lines[first]):
+            out.append(Raw(lines[first].strip(), lines[first + 1:]))
+        else:
+            out.append(Raw(doc.title or doc.name, lines))
+    return out
+
+
+def apply_ops(chapters: list[Raw], ops: list[dict]) -> list[Raw]:
+    """Gộp / tách thủ công, áp dụng lần lượt. merge: {"op":"merge","i":k} gộp chương k với k+1 (tiêu đề k+1 thành dòng văn bản);
+    split: {"op":"split","i":k,"line":L,"title":"…"} tách chương k trước dòng L (1 = dòng đầu của thân chương)."""
+    chs = [Raw(c.title, list(c.lines)) for c in chapters]
+    for op in ops:
+        try:
+            i = int(op["i"])
+            if op["op"] == "merge":
+                nxt = chs.pop(i + 1)
+                chs[i].lines += ([nxt.title] if nxt.title else []) + nxt.lines
+            elif op["op"] == "split":
+                if "contains" in op:  # tách tại dòng đầu tiên chứa đoạn văn bản này (người dùng không thấy số dòng gốc)
+                    needle = str(op["contains"]).strip().lower()
+                    line = next((k + 1 for k, l in enumerate(chs[i].lines) if needle and needle in l.lower()), 0)
+                    if not line:
+                        raise BookError(f"Không thấy dòng nào chứa '{op['contains']}' trong chương {i + 1}.")
+                else:
+                    line = int(op["line"])
+                if not 1 <= line <= len(chs[i].lines):
+                    raise BookError(f"Không tách được: chương {i + 1} chỉ có {len(chs[i].lines)} dòng.")
+                head, tail = chs[i].lines[: line - 1], chs[i].lines[line - 1:]
+                chs[i].lines = head
+                chs.insert(i + 1, Raw(str(op.get("title") or "").strip(), tail))
+            else:
+                raise BookError(f"Thao tác không hợp lệ: {op['op']}")
+        except (KeyError, IndexError, TypeError, ValueError) as ex:
+            if isinstance(ex, BookError):
+                raise
+            raise BookError(f"Thao tác gộp/tách không hợp lệ: {op}") from ex
+    return chs
+
+
+# ───────────────────────────── làm sạch ─────────────────────────────
+
+_CTRL = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2060\ufeff]")
+_URL = re.compile(r"(?i)(?:https?://|ftp://|www\.)\S+|\b[\w-]+\.(?:com|net|org|vn|info|io|me|cc|xyz|top|co|tv)\b(?:/\S*)?")
+_CREDIT = re.compile(r"(?i)nguồn\s*:|truyện được dịch bởi")
+_QUOTES = str.maketrans({"“": '"', "”": '"', "„": '"', "‟": '"', "«": '"', "»": '"', "「": '"', "」": '"', "『": '"', "』": '"',
+                         "‘": "'", "’": "'", "‚": "'", "‛": "'"})
+_ELLIPSIS = re.compile(r"\.{3,}|…{2,}|。{2,}|\.\s?\.\s?\.(?:\s?\.)*")
+_FANCY = "◆◇♦♢※★☆●○■□▪❖✦✧✱✲§"
+_SEP = re.compile(
+    r"^(?:[*＊\-–—_=~～#+·•]\s*){3,}$|^(?:[oO]\s*){3,}$|^(?:[" + re.escape(_FANCY) + r"]\s*)+$"
+)
+_PAUSE_LINE = re.compile(r"^\[nghỉ [^\]]*\]$", re.IGNORECASE)
+_TERMINATORS = set(".!?…\"”'’)]}。！？:;」』»")
+
+
+def validate_clean(cfg: dict) -> dict:
+    """Kiểm tra và chuẩn hoá cấu hình làm sạch (regex tuỳ chỉnh phải biên dịch được; separator_pause 0.1–5)."""
+    out = default_settings()["clean"]
+    out["rules"].update({k: bool(v) for k, v in (cfg.get("rules") or {}).items() if k in out["rules"]})
+    pause = float(cfg.get("separator_pause", out["separator_pause"]))
+    if not 0.1 <= pause <= 5:
+        raise BookError("separator_pause phải từ 0.1 đến 5 giây.")
+    out["separator_pause"] = round(pause, 1)
+    for r in cfg.get("custom") or []:
+        pattern = str(r.get("pattern", ""))
+        if not pattern:
+            raise BookError("Quy tắc tuỳ chỉnh thiếu regex.")
+        try:
+            re.compile(pattern)
+        except re.error as ex:
+            raise BookError(f"Regex '{pattern}' không hợp lệ: {ex}") from ex
+        out["custom"].append({"pattern": pattern, "replace": str(r.get("replace", "")), "enabled": bool(r.get("enabled", True))})
+    return out
+
+
+def _stat(stats: dict, key: str, n: int = 1) -> None:
+    stats[key] = stats.get(key, 0) + n
+
+
+def boilerplate_lines(chapters: list[Raw]) -> set[str]:
+    """Dòng dài (≥ 20 ký tự) xuất hiện ở ≥ max(3, nửa số chương) chương: đầu/cuối trang của web truyện."""
+    n = len(chapters)
+    if n < 3:
+        return set()
+    seen: dict[str, int] = {}
+    for ch in chapters:
+        for line in {l.strip() for l in ch.lines if len(l.strip()) >= 20}:
+            seen[line] = seen.get(line, 0) + 1
+    need = max(3, math.ceil(n / 2))
+    return {l for l, c in seen.items() if c >= need}
+
+
+def clean_lines(lines: list[str], cfg: dict, stats: dict, boiler: set[str]) -> list[str]:
+    rules = cfg["rules"]
+    pause = f"[nghỉ {cfg['separator_pause']:g}s]"
+    out: list[str] = []
+    for raw in lines:
+        s = raw.strip()
+        if rules["quotes"]:
+            s = s.translate(_QUOTES)
+        if rules["ellipsis"]:
+            s = _ELLIPSIS.sub("…", s)
+        if s and rules["url_lines"] and _URL.search(s):
+            _stat(stats, "url_lines"); continue
+        if s and rules["credit_lines"] and _CREDIT.search(s):
+            _stat(stats, "credit_lines"); continue
+        if s and rules["separators"] and _SEP.match(s):
+            out.append(pause); _stat(stats, "separators"); continue
+        if s and rules["dup_lines"] and s in boiler:
+            _stat(stats, "dup_lines"); continue
+        out.append(s)
+    if rules["dup_lines"]:  # dòng dài liền nhau giống hệt nhau
+        dedup: list[str] = []
+        for s in out:
+            if s and len(s) >= 12 and dedup and dedup[-1] == s:
+                _stat(stats, "dup_lines"); continue
+            dedup.append(s)
+        out = dedup
+    if rules["join_lines"]:  # gộp dòng bị ngắt giữa câu
+        joined: list[str] = []
+        for s in out:
+            prev = joined[-1] if joined else ""
+            if (prev and s and prev[-1] not in _TERMINATORS and not _PAUSE_LINE.match(prev) and not _PAUSE_LINE.match(s)
+                    and (s[0].islower() or s[0] in ",;.)")):
+                joined[-1] = f"{prev} {s}"; _stat(stats, "join_lines"); continue
+            joined.append(s)
+        out = joined
+    text = "\n".join(out)
+    for r in cfg["custom"]:
+        if r["enabled"]:
+            text, n = re.subn(r["pattern"], r["replace"], text, flags=re.MULTILINE)
+            _stat(stats, "custom", n)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip("\n")  # tối đa một dòng trống giữa các đoạn
+    return text.split("\n") if text else []
+
+
+def build(docs: list[Doc], settings: dict) -> dict:
+    """Tách chương + làm sạch → {"chapters": [{n, title, text}], "stats": {...}, "dropped": số chương rỗng bị bỏ}.
+    settings: {"split": {regex, mode, ops}, "clean": {...}}."""
+    split, clean = settings["split"], validate_clean(settings["clean"])
+    if split["mode"] not in ("regex", "per_file"):
+        raise BookError("mode phải là 'regex' hoặc 'per_file'.")
+    stats: dict = {}
+    if clean["rules"]["control_chars"]:
+        for d in docs:
+            before = d.text
+            d.text = _CTRL.sub("", unicodedata.normalize("NFC", before.replace("\r\n", "\n").replace("\r", "\n").replace("\u00a0", " ").replace("\u3000", " ")))
+            if d.text != before:
+                _stat(stats, "control_chars")
+    else:
+        for d in docs:
+            d.text = d.text.replace("\r\n", "\n").replace("\r", "\n")
+    raw = (split_per_file if split["mode"] == "per_file" else split_regex)(docs, split["regex"])
+    raw = apply_ops(raw, split.get("ops") or [])
+    boiler = boilerplate_lines(raw) if clean["rules"]["dup_lines"] else set()
+    chapters, dropped = [], 0
+    for i, ch in enumerate(raw):
+        body = clean_lines(ch.lines, clean, stats, boiler)
+        text = "\n".join(body)
+        title = ch.title
+        if not title and i == 0:  # phần trước chương đầu tiên
+            if len(text) < MIN_INTRO_CHARS:
+                dropped += bool(text); continue
+            title = "Mở đầu"
+        if len(text) < MIN_CHAPTER_CHARS:
+            dropped += 1; continue
+        chapters.append({"n": len(chapters) + 1, "title": title, "text": text, "raw": i})
+    return {"chapters": chapters, "stats": stats, "dropped": dropped}
+
+
+def overrides(book: dict, body: dict) -> dict:
+    """Cài đặt hiệu lực = cài đặt đã lưu, ghi đè bởi body (regex, mode, ops, clean) — dùng cho xem trước."""
+    split = dict(book["split"])
+    for k in ("regex", "mode", "ops"):
+        if body.get(k) is not None:
+            split[k] = body[k]
+    return {"split": split, "clean": body.get("clean") or book["clean"]}
+
+
+def summarize(built: dict) -> list[dict]:
+    return [{"n": c["n"], "title": c["title"], "chars": len(c["text"]), "est_seconds": round(len(c["text"]) / CHARS_PER_SEC),
+             "raw": c["raw"], "head": c["text"][:120].replace("\n", " ")} for c in built["chapters"]]
+
+
+def confirm(book_id: str, built: dict, settings: dict) -> dict:
+    """Ghi chapters/ (thay toàn bộ chương cũ) và lưu cài đặt tách/làm sạch vào book.json."""
+    if not built["chapters"]:
+        raise BookError("Không tìm thấy chương nào. Hãy chỉnh regex hoặc chọn chế độ 'mỗi file một chương'.")
+    book = get(book_id)
+    with _lock:
+        d = _dir(book_id) / "chapters"
+        shutil.rmtree(d, ignore_errors=True)
+        d.mkdir()
+        for c in built["chapters"]:
+            (d / f"{c['n']:04d}.txt").write_text(c["text"], encoding="utf-8")
+            _write_json(d / f"{c['n']:04d}.json", {"n": c["n"], "title": c["title"], "chars": len(c["text"]), "status": "pending"})
+        book["split"], book["clean"] = settings["split"], validate_clean(settings["clean"])
+        book["status"] = "ready"
+        book["chapters"] = {"count": len(built["chapters"]), "chars": sum(len(c["text"]) for c in built["chapters"])}
+        _write_json(_dir(book_id) / "book.json", book)
+    return book
+
+
+def list_chapters(book_id: str) -> list[dict]:
+    out = []
+    for p in sorted((_dir(book_id) / "chapters").glob("*.json")):
+        c = json.loads(p.read_text(encoding="utf-8"))
+        out.append({**c, "est_seconds": round(c["chars"] / CHARS_PER_SEC)})
+    return out
+
+
+def chapter_text(book_id: str, n: int) -> tuple[dict, str]:
+    d = _dir(book_id) / "chapters"
+    meta_path, txt = d / f"{n:04d}.json", d / f"{n:04d}.txt"
+    if not meta_path.is_file() or not txt.is_file():
+        raise NotFound(f"{book_id}/{n}")
+    return json.loads(meta_path.read_text(encoding="utf-8")), txt.read_text(encoding="utf-8")
+
+
+def reading_text(book: dict, meta: dict, body: str) -> str:
+    """Văn bản đưa cho engine: tiêu đề chương (nếu bật đọc tiêu đề) + thân chương."""
+    return f"{meta['title']}\n\n{body}" if book.get("read_title", True) and meta.get("title") else body
+
+
+def excerpt(text: str, limit: int = 300) -> str:
+    """Đoạn đầu ~limit ký tự, cắt ở ranh giới đoạn/câu (không cắt giữa thẻ [nghỉ …])."""
+    out, total = [], 0
+    for para in text.split("\n"):
+        if total >= limit:
+            break
+        if total + len(para) > limit * 1.5 and not _PAUSE_LINE.match(para):
+            cut = max(para.rfind(c, 0, int(limit * 1.5) - total) for c in ".!?…")
+            para = para[: cut + 1] if cut > 0 else para[: limit - total]
+        out.append(para)
+        total += len(para)
+    return "\n".join(out).strip()

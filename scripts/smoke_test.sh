@@ -89,6 +89,27 @@ check "thẻ nghỉ 2s với vieneu: khoảng lặng 2 ± 0.1 s" pause_gap viene
 check "thẻ nghỉ ngoài 0.1–5 s → 400" expect_status 400 -X POST "$B/api/tts" -F text="a [nghỉ 7s] b" -F engine=vieneu -F voice="Trúc Ly"
 command -v ffmpeg >/dev/null && check "bản có thẻ nghỉ có MP3 trong lịch sử" bash -c "I=\$(curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; print(json.load(sys.stdin)[0]['id'])\"); [ \"\$(curl -s -o /dev/null -w '%{http_code}' '$B/api/history/'\$I'/audio?fmt=mp3')\" = 200 ]"
 
+echo "== tab Đọc: giọng mẫu (ref_audio) + [nghỉ 1s] — cache theo file mẫu"
+curl -s -o "$WORK/refA.wav" -X POST "$B/api/tts" -F text="Hôm nay trời đẹp lắm, tôi muốn đi dạo cùng bạn bè quanh hồ." -F engine=vieneu -F voice="Trúc Ly"
+curl -s -o "$WORK/refB.wav" -X POST "$B/api/tts" -F text="Hôm nay trời đẹp lắm, tôi muốn đi dạo cùng bạn bè quanh hồ." -F engine=vieneu -F voice="Adam bựa"
+ref_pause() {  # ref_pause <file mẫu> <file ra>
+  [ "$(curl -s -o "$2" -w '%{http_code}' -X POST "$B/api/tts" -F text="Xin chào bạn. [nghỉ 1s] Hẹn gặp lại nhé." -F engine=vieneu -F ref_audio=@"$1")" = 200 ]
+}
+cache_n() { ls "$DATA"/cache/*.wav 2>/dev/null | wc -l; }
+ref_cache_behaviour() {
+  local c0 c1 c2 c3
+  c0=$(cache_n)
+  ref_pause "$WORK/refA.wav" "$WORK/o1.wav" || { echo "lần 1 lỗi"; return 1; }
+  c1=$(cache_n); [ $((c1 - c0)) -eq 2 ] || { echo "lần 1 phải tạo 2 đoạn cache mới, thực tế $((c1 - c0))"; return 1; }
+  ref_pause "$WORK/refA.wav" "$WORK/o2.wav" || { echo "lần 2 lỗi"; return 1; }
+  c2=$(cache_n); [ "$c2" -eq "$c1" ] || { echo "lần 2 (cùng file mẫu) phải dùng cache, nhưng cache tăng $((c2 - c1))"; return 1; }
+  cmp -s "$WORK/o1.wav" "$WORK/o2.wav" || { echo "lần 2 phải cho đúng audio của lần 1"; return 1; }
+  ref_pause "$WORK/refB.wav" "$WORK/o3.wav" || { echo "lần 3 lỗi"; return 1; }
+  c3=$(cache_n); [ $((c3 - c2)) -eq 2 ] || { echo "đổi file mẫu phải sinh lại 2 đoạn, thực tế $((c3 - c2))"; return 1; }
+  ! cmp -s "$WORK/o1.wav" "$WORK/o3.wav" || { echo "đổi file mẫu mà audio không đổi"; return 1; }
+}
+check "ref_audio + [nghỉ 1s]: cùng file mẫu dùng cache, đổi file mẫu thì sinh lại" ref_cache_behaviour
+
 echo "== lịch sử"
 check "lịch sử có bản tts" bash -c "curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; assert len(json.load(sys.stdin)) >= 1\""
 HID=$(curl -s "$B/api/history" | json "d[0]['id']" 2>/dev/null)
@@ -162,6 +183,13 @@ check "xoá giọng mix" expect_status 200 -X DELETE "$B/api/library/${MIX#lib:}
 check "xoá giọng clone" expect_status 200 -X DELETE "$B/api/library/${LIB#lib:}"
 check "giọng đã xoá → 404" expect_status 404 "$B/api/library/${LIB#lib:}/preview"
 check "lịch sử giữ tên giọng đã xoá (voice_label + voice_deleted)" bash -c "curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; m=[x for x in json.load(sys.stdin) if x.get('voice')=='$LIB']; assert m and m[0]['voice_label'] and m[0]['voice_deleted'] is True, m\""
+
+echo "== sách nói (nhập .txt/.epub, tách chương, làm sạch, ngăn cảnh → [nghỉ])"
+$PY scripts/smoke_books.py "$B" >"$WORK/books.out" 2>&1
+grep -E '^(PASS|FAIL)  ' "$WORK/books.out"
+PASS=$((PASS + $(grep -c '^PASS  ' "$WORK/books.out")))
+FAIL=$((FAIL + $(grep -c '^FAIL  ' "$WORK/books.out")))
+grep -qE '^(PASS|FAIL)  ' "$WORK/books.out" || bad "sách nói: smoke_books.py không chạy được" "$(tail -3 "$WORK/books.out" | tr '\n' ' ')"
 
 echo "== giới hạn: lịch sử 50 bản, LRU cache (module trực tiếp, data tạm riêng)"
 check "lịch sử giữ đúng 50 bản mới nhất" env TTS_DATA_DIR="$WORK/hist" $PY - <<'PYEOF'

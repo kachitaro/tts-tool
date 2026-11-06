@@ -282,9 +282,10 @@ def _read_wav(path: Path) -> np.ndarray:
     return sf.read(str(path), dtype="float32")[0]
 
 
-# Lặng sẵn có ở mỗi đầu đoạn chữ sau to_line_audio: 0.03 s đệm + ~0.045 s đuôi/đầu âm dưới -40 dB (đo thực với edge và
-# VieNeu: khoảng lặng đo được = thẻ nghỉ + ~0.09 s khi chưa bù). Trừ phần này để [nghỉ Ns] đo ra đúng N giây.
-EDGE_PAD_S = 0.075
+# Lặng sẵn có ở mỗi đầu đoạn chữ sau to_line_audio, áp dụng cho mọi engine: 0.03 s đệm + ~0.045 s đuôi/đầu âm dưới
+# −40 dB (đo với edge và VieNeu: khoảng lặng đo được = thẻ nghỉ + ~0.09 s khi chưa bù). Trừ phần này để
+# [nghỉ Ns] đo ra đúng N giây.
+SEGMENT_PAD_S = 0.075
 
 
 def make_plan(engine, text: str, normalize: bool) -> list[tuple[str, object]]:
@@ -328,7 +329,7 @@ async def render_plan(engine, voice: str, plan: list[tuple[str, object]], speed:
             parts.append(await synth_segment(engine, voice, val, speed, **kw))
             continue
         pads = (idx > 0 and plan[idx - 1][0] == "text") + (idx + 1 < len(plan) and plan[idx + 1][0] == "text")
-        parts.append(np.zeros(int(max(0.0, val - pads * EDGE_PAD_S) * SR), dtype=np.float32))
+        parts.append(np.zeros(int(max(0.0, val - pads * SEGMENT_PAD_S) * SR), dtype=np.float32))
     return np.concatenate(parts)
 
 
@@ -342,14 +343,14 @@ async def render_text(engine, voice: str, text: str, speed: int, normalize: bool
                              pitch=pitch, extra=extra, warnings=warnings, ref_audio=ref_audio)
 
 
-def encode_outputs(wav: np.ndarray) -> tuple[bytes, bytes | None]:
-    """WAV 48 kHz mono + MP3 (None nếu máy không có ffmpeg)."""
+def encode_outputs(wav: np.ndarray, with_mp3: bool = True) -> tuple[bytes, bytes | None]:
+    """WAV 48 kHz mono + MP3 (None nếu không yêu cầu hoặc máy không có ffmpeg)."""
     import tempfile
 
     with tempfile.TemporaryDirectory() as d:
         w, m = Path(d) / "o.wav", Path(d) / "o.mp3"
         _write_wav(w, wav)
-        return w.read_bytes(), (m.read_bytes() if export_mp3(w, m) else None)
+        return w.read_bytes(), (m.read_bytes() if with_mp3 and export_mp3(w, m) else None)
 
 
 async def _do_line(job: Job, i: int, force: bool = False, seed: int | None = None) -> None:

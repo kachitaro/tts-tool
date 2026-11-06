@@ -22,6 +22,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
+import books
 import dialogue
 import history
 import library
@@ -559,6 +560,175 @@ def projects_delete(project_id: str):
     except KeyError:
         raise HTTPException(404, "Không tìm thấy dự án.")
     return {"deleted": project_id}
+
+
+# ───────────────────────────── sách nói ─────────────────────────────
+
+def default_book_voice() -> dict:
+    """Giọng kể mặc định: VieNeu (default_voice của gói) nếu đã cài, không thì edge."""
+    v = ENGINES.get("vieneu")
+    if v and v.installed():
+        return {"engine": "vieneu", "voice": "Hải Đăng"}
+    return {"engine": "edge", "voice": "vi-VN-HoaiMyNeural"}
+
+
+def book_or_404(book_id: str) -> dict:
+    try:
+        return books.get(book_id)
+    except books.NotFound:
+        raise HTTPException(404, "Không tìm thấy truyện.")
+
+
+class SplitIn(BaseModel):
+    regex: str | None = None
+    mode: str | None = None
+    ops: list[dict] | None = None
+    clean: dict | None = None
+
+
+class BookPatch(BaseModel):
+    title: str | None = None
+    author: str | None = None
+    voice: dict | None = None
+    speed: int | None = None
+    normalize: bool | None = None
+    read_title: bool | None = None
+    split: dict | None = None
+    clean: dict | None = None
+
+
+async def build_book(book_id: str, book: dict, body: SplitIn) -> tuple[dict, dict]:
+    """Tách chương + làm sạch với cài đặt đã lưu, ghi đè bởi body (xem trước hoặc xác nhận). Trả (built, settings)."""
+    try:
+        settings = books.overrides(book, body.model_dump())
+        built = await anyio.to_thread.run_sync(lambda: books.build(books.load_docs(book_id), settings))
+    except books.BookError as ex:
+        raise HTTPException(400, str(ex))
+    return built, settings
+
+
+@app.get("/api/books")
+def books_list():
+    return books.list_books()
+
+
+@app.post("/api/books/import")
+async def books_import(files: list[UploadFile] = File(...), title: str = Form(""), author: str = Form("")):
+    data = []
+    for f in files:
+        raw = await f.read(books.MAX_FILE_BYTES + 1)
+        if len(raw) > books.MAX_FILE_BYTES:
+            raise HTTPException(413, f"'{f.filename}' quá lớn (tối đa {books.MAX_FILE_BYTES // 2**20} MB).")
+        data.append((f.filename or "file.txt", raw))
+    try:
+        return await anyio.to_thread.run_sync(books.import_files, data, title, author, default_book_voice())
+    except books.BookError as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.get("/api/books/{book_id}")
+def books_get(book_id: str):
+    book = book_or_404(book_id)
+    return {**book, "chapters_list": books.list_chapters(book_id) if book["status"] == "ready" else [],
+            "rules_catalog": [{"name": n, "label": label} for n, label in books.RULES],
+            "default_regex": books.DEFAULT_SPLIT_REGEX}
+
+
+@app.patch("/api/books/{book_id}")
+def books_patch(book_id: str, body: BookPatch):
+    book = book_or_404(book_id)
+    try:
+        if body.title is not None:
+            if not body.title.strip():
+                raise books.BookError("Tên truyện không được để trống.")
+            book["title"] = body.title.strip()[:200]
+        if body.author is not None:
+            book["author"] = body.author.strip()[:200]
+        if body.voice is not None:
+            e = get_engine(str(body.voice.get("engine", "")))
+            check_lib_voice(e, str(body.voice.get("voice", "")))
+            book["voice"] = {"engine": e.id, "voice": str(body.voice["voice"])}
+        if body.speed is not None:
+            book["speed"] = max(-50, min(200, body.speed))
+        if body.normalize is not None:
+            book["normalize"] = body.normalize
+        if body.read_title is not None:
+            book["read_title"] = body.read_title
+        if body.split is not None:
+            sp = {**book["split"], **{k: v for k, v in body.split.items() if k in ("regex", "mode", "ops")}}
+            books.compile_split(sp["regex"])
+            if sp["mode"] not in ("regex", "per_file"):
+                raise books.BookError("mode phải là 'regex' hoặc 'per_file'.")
+            book["split"] = sp
+        if body.clean is not None:
+            book["clean"] = books.validate_clean(body.clean)
+    except books.BookError as ex:
+        raise HTTPException(400, str(ex))
+    books.save(book)
+    return book
+
+
+@app.delete("/api/books/{book_id}")
+def books_delete(book_id: str):
+    book_or_404(book_id)
+    books.delete(book_id)
+    return {"deleted": book_id}
+
+
+@app.post("/api/books/{book_id}/preview")
+async def books_preview(book_id: str, body: SplitIn | None = None):
+    """Xem trước danh sách chương với cài đặt hiện tại (có thể ghi đè bằng body); không ghi gì ra đĩa."""
+    built, _ = await build_book(book_id, book_or_404(book_id), body or SplitIn())
+    chapters = books.summarize(built)
+    return {"chapters": chapters, "stats": built["stats"], "dropped": built["dropped"],
+            "total_chars": sum(c["chars"] for c in chapters)}
+
+
+@app.post("/api/books/{book_id}/chapters")
+async def books_confirm(book_id: str, body: SplitIn | None = None):
+    """Xác nhận tách chương: ghi chapters/ (thay chương cũ) và lưu cài đặt tách/làm sạch."""
+    book = book_or_404(book_id)
+    built, settings = await build_book(book_id, book, body or SplitIn())
+    try:
+        return books.confirm(book_id, built, settings)
+    except books.BookError as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.get("/api/books/{book_id}/chapters")
+def books_chapters(book_id: str):
+    book_or_404(book_id)
+    return books.list_chapters(book_id)
+
+
+@app.get("/api/books/{book_id}/chapters/{n}")
+def books_chapter(book_id: str, n: int):
+    book = book_or_404(book_id)
+    try:
+        meta, body = books.chapter_text(book_id, n)
+    except books.NotFound:
+        raise HTTPException(404, "Không có chương này.")
+    return {**meta, "text": body, "reading_text": books.reading_text(book, meta, body)}
+
+
+@app.get("/api/books/{book_id}/chapters/{n}/sample")
+async def books_sample(book_id: str, n: int):
+    """Nghe thử đầu chương (~300 ký tự) bằng giọng và cài đặt của truyện (pipeline hội thoại: cache từng đoạn)."""
+    book = book_or_404(book_id)
+    try:
+        meta, body = books.chapter_text(book_id, n)
+    except books.NotFound:
+        raise HTTPException(404, "Không có chương này.")
+    e = get_engine(book["voice"]["engine"])
+    voice = book["voice"]["voice"]
+    check_lib_voice(e, voice)
+    text = books.excerpt(books.reading_text(book, meta, body), 300)
+    try:
+        wav = await dialogue.render_text(e, voice, text, book["speed"], book["normalize"], 0, None, [])
+        data, _ = await anyio.to_thread.run_sync(dialogue.encode_outputs, wav, False)
+    except Exception as ex:
+        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
+    return Response(data, media_type="audio/wav")
 
 
 # ───────────────────────────── lịch sử ─────────────────────────────
