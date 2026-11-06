@@ -9,6 +9,7 @@ Chạy:  python server.py   →  mở http://localhost:8000
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -22,8 +23,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
+import bookq
 import books
 import dialogue
+import exporter
 import lexicon
 import narrate
 import history
@@ -39,7 +42,9 @@ PREVIEW_TEXT = "Xin chào, đây là giọng đọc thử."
 @asynccontextmanager
 async def lifespan(_):
     dialogue.prune_cache()  # giữ data/cache/ ≤ TTS_CACHE_MB ngay khi khởi động
+    bookq.Q.start(book_voices)  # nạp data/queue.json; chương đang dở khi server chết sẽ chạy tiếp
     yield
+    await bookq.Q.stop()  # dừng ở ranh giới mảnh, trả chương dở về hàng đợi
 
 
 app = FastAPI(title="Giọng Việt", lifespan=lifespan)
@@ -146,10 +151,12 @@ def engines():
             "local": e.local,
             "available": e.installed(),
             "loaded": e.loaded,
+            "name": e.name,
             "label": e.label,
             "description": e.description,
             "install_hint": e.install_hint,
             "capabilities": e.capabilities(),
+            "precision": e.precision(),
         }
         for e in ENGINES.values()
     }
@@ -581,6 +588,13 @@ def book_or_404(book_id: str) -> dict:
         raise HTTPException(404, "Không tìm thấy truyện.")
 
 
+def busy_check(book_id: str) -> None:
+    """Tách lại chương / xoá truyện xoá audio đã dựng: không làm khi chương của truyện này đang chạy; chương đang chờ thì bỏ khỏi hàng đợi."""
+    if bookq.Q.running and bookq.Q.running["book"] == book_id:
+        raise HTTPException(409, "Đang tạo audio cho truyện này. Hãy huỷ hàng đợi (hoặc đợi chương đang chạy xong) rồi thử lại.")
+    bookq.Q.forget_book(book_id)
+
+
 class SplitIn(BaseModel):
     regex: str | None = None
     mode: str | None = None
@@ -596,6 +610,8 @@ class BookPatch(BaseModel):
     speed: int | None = None
     normalize: bool | None = None
     read_title: bool | None = None
+    paragraph_pause_s: float | None = None
+    title_pause_s: float | None = None
     split: dict | None = None
     clean: dict | None = None
     exceptions: list[dict] | None = None
@@ -660,6 +676,10 @@ def books_patch(book_id: str, body: BookPatch):
             book["normalize"] = body.normalize
         if body.read_title is not None:
             book["read_title"] = body.read_title
+        if body.paragraph_pause_s is not None:
+            book["paragraph_pause_s"] = books.validate_pause(body.paragraph_pause_s, "Nghỉ giữa các đoạn văn", 3)
+        if body.title_pause_s is not None:
+            book["title_pause_s"] = books.validate_pause(body.title_pause_s, "Nghỉ sau tiêu đề", 5)
         if body.split is not None:
             sp = {**book["split"], **{k: v for k, v in body.split.items() if k in ("regex", "mode", "ops")}}
             books.compile_split(sp["regex"])
@@ -686,6 +706,7 @@ def books_patch(book_id: str, body: BookPatch):
 @app.delete("/api/books/{book_id}")
 def books_delete(book_id: str):
     book_or_404(book_id)
+    busy_check(book_id)
     books.delete(book_id)
     return {"deleted": book_id}
 
@@ -704,6 +725,7 @@ async def books_confirm(book_id: str, body: SplitIn | None = None):
     """Xác nhận tách chương: ghi chapters/ (thay chương cũ) và lưu cài đặt tách/làm sạch."""
     book = book_or_404(book_id)
     built, settings = await build_book(book_id, book, body or SplitIn())
+    busy_check(book_id)
     try:
         return books.confirm(book_id, built, settings)
     except books.BookError as ex:
@@ -712,8 +734,16 @@ async def books_confirm(book_id: str, body: SplitIn | None = None):
 
 @app.get("/api/books/{book_id}/chapters")
 def books_chapters(book_id: str):
-    book_or_404(book_id)
-    return books.list_chapters(book_id)
+    book = book_or_404(book_id)
+    chs = books.list_chapters(book_id)
+    try:  # audio đã dựng bằng cấu hình cũ (đổi giọng, tốc độ, từ điển…) → stale
+        narr, dlg = book_voices(book)
+        sig = bookq.signature(book, narr, dlg, lexicon.load_global())
+    except HTTPException:
+        sig = None
+    for c in chs:
+        c["stale"] = bool(sig and c.get("status") == "done" and c.get("sig") != sig)
+    return chs
 
 
 @app.get("/api/books/{book_id}/chapters/{n}")
@@ -749,17 +779,15 @@ async def speak_book(book: dict, text: str, use_lexicon: bool = True) -> tuple[b
 
 
 @app.get("/api/books/{book_id}/chapters/{n}/sample")
-async def books_sample(book_id: str, n: int, chars: int = 300, offset: float = 0.0, use_lexicon: bool = True):
-    """Nghe thử một đoạn chương bằng giọng + từ điển + (nếu bật) giọng lời thoại của truyện, qua pipeline hội thoại.
-    chars ≈ 300 (▶) hoặc ≈ 900 ("Đọc thử 1 phút"); offset 0..1 chọn chỗ bắt đầu trong chương (0 = đầu, có đọc tiêu đề)."""
+async def books_sample(book_id: str, n: int, use_lexicon: bool = True):
+    """Nghe thử đầu chương (~300 ký tự, có đọc tiêu đề) bằng giọng + từ điển + giọng lời thoại của truyện. Chạy ngay
+    (không qua hàng đợi) nhưng vào khoá model trước việc nền. Bản dài hơn: POST …/trial."""
     book = book_or_404(book_id)
-    if not 50 <= chars <= 3000 or not 0 <= offset <= 1:
-        raise HTTPException(400, "chars phải từ 50 đến 3000 và offset từ 0 đến 1.")
     try:
         meta, body = books.chapter_text(book_id, n)
     except books.NotFound:
         raise HTTPException(404, "Không có chương này.")
-    text = books.excerpt(books.reading_text(book, meta, body) if offset == 0 else body, chars, offset)
+    text = narrate.join_paras(books.excerpt_paras(books.paragraphs(book, meta, body), 300))
     data, seconds = await speak_book(book, text, use_lexicon)
     return Response(data, media_type="audio/wav", headers={"X-Sample-Seconds": f"{seconds:.1f}", "X-Sample-Chars": str(len(text))})
 
@@ -795,7 +823,7 @@ async def books_suggest(book_id: str, min_count: int = 3, limit: int = 200):
     known = {e["match"] for e in (book.get("lexicon") or []) + lexicon.load_global()}
     terms = await anyio.to_thread.run_sync(
         lambda: lexicon.suggest_terms(books.iter_chapters(book_id), known, max(1, min_count), max(1, min(limit, 1000))))
-    return {"terms": [{"phrase": t.phrase, "count": t.count, "chapter": t.chapter, "example": t.example} for t in terms]}
+    return {"terms": [{"phrase": t.phrase, "count": t.count, "chapter": t.chapter, "example": t.example, "parent": t.parent} for t in terms]}
 
 
 @app.get("/api/lexicon")
@@ -853,6 +881,218 @@ async def http_error(_, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_error(_, exc: RequestValidationError):
     return JSONResponse({"error": "Dữ liệu gửi lên không hợp lệ."}, status_code=422)
+
+
+# ───────────── hàng đợi tạo audio (Phase 6c) ─────────────
+
+class TrialIn(BaseModel):
+    chars: int = 900
+    offset: float = 0.0
+
+
+@app.post("/api/books/{book_id}/chapters/{n}/trial")
+async def books_trial(book_id: str, n: int, body: TrialIn | None = None):
+    """"Đọc thử 1 phút": xếp một đoạn ~900 ký tự vào hàng đợi ưu tiên cao nhất (chen vào giữa hai mảnh của chương đang chạy).
+    offset 0..1 là vị trí bắt đầu trong chương (0 = đầu chương, có đọc tiêu đề). Hỏi tiến độ: GET /api/trials/{id}."""
+    body = body or TrialIn()
+    book = book_or_404(book_id)
+    if not 50 <= body.chars <= 3000 or not 0 <= body.offset <= 1:
+        raise HTTPException(400, "chars phải từ 50 đến 3000 và offset từ 0 đến 1.")
+    try:
+        meta, text = books.chapter_text(book_id, n)
+    except books.NotFound:
+        raise HTTPException(404, "Không có chương này.")
+    narr, dlg = book_voices(book)
+    excerpt = narrate.join_paras(books.excerpt_paras(books.paragraphs(book, meta, text, title=body.offset == 0), body.chars, body.offset))
+    try:
+        t = bookq.Q.submit_trial(book, n, excerpt, narr, dlg)
+    except (bookq.QueueError, ValueError) as ex:
+        raise HTTPException(400, str(ex))
+    return {"id": t.id, "total": t.total, "chars": len(excerpt)}
+
+
+def trial_or_404(tid: str) -> bookq.Trial:
+    t = bookq.Q.trials.get(tid)
+    if t is None:
+        raise HTTPException(404, "Không tìm thấy bản đọc thử (đã hết hạn?).")
+    return t
+
+
+@app.get("/api/trials/{tid}")
+def trial_status(tid: str):
+    t = trial_or_404(tid)
+    return {"id": t.id, "status": t.status, "done": t.done, "total": t.total, "seconds": round(t.seconds, 1), "error": t.error}
+
+
+@app.get("/api/trials/{tid}/audio")
+def trial_audio(tid: str):
+    t = trial_or_404(tid)
+    if t.status != "done":
+        raise HTTPException(409, "Bản đọc thử chưa xong.")
+    return Response(t.wav, media_type="audio/wav")
+
+
+def queue_state(book_id: str | None = None) -> dict:
+    if book_id is None:
+        return bookq.Q.status()
+    book = book_or_404(book_id)
+    out = bookq.Q.book_status(book_id, book["voice"]["engine"])
+    out["exports"] = exporter.list_files(book_id)
+    n, size = books.purgeable(book_id)
+    out["purgeable"] = {"chapters": n, "bytes": size}
+    try:
+        out["bench"] = json.loads(bookq.BENCH_PATH.read_text(encoding="utf-8")).get("vieneu")
+    except (OSError, ValueError):
+        out["bench"] = None
+    return out
+
+
+@app.get("/api/queue")
+def queue_get(book: str | None = None):
+    return queue_state(book)
+
+
+class RunIn(BaseModel):
+    chapters: list[int] | None = None   # None = mọi chương chưa xong của truyện
+    limit: int | None = None            # chỉ lấy N chương đầu trong danh sách trên ("Chạy thử 5 chương đầu")
+    regenerate: bool = False            # xoá audio cũ và dựng lại bằng model (bỏ qua cache)
+    stale_only: bool = False            # chỉ chương đã dựng bằng cấu hình cũ (kèm regenerate)
+
+
+@app.post("/api/books/{book_id}/queue/run")
+def queue_run(book_id: str, body: RunIn | None = None):
+    body = body or RunIn()
+    book = book_or_404(book_id)
+    if book["status"] != "ready":
+        raise HTTPException(400, "Hãy tách chương trước.")
+    book_voices(book)  # báo lỗi giọng (thiếu engine / giọng đã xoá) ngay thay vì làm mọi chương lỗi
+    chs = books.list_chapters(book_id)
+    if body.chapters is not None:
+        ns = body.chapters
+    elif body.stale_only:
+        stale = {c["n"] for c in books_chapters(book_id) if c["stale"]}
+        ns = [c["n"] for c in chs if c["n"] in stale]
+    else:  # mặc định: chương chưa xong; regenerate không kèm danh sách: dựng lại tất cả
+        ns = [c["n"] for c in chs if body.regenerate or c.get("status") not in ("done", "exported")]
+    if body.limit is not None:
+        ns = ns[: max(0, body.limit)]
+    if not ns:
+        raise HTTPException(400, "Không có chương nào cần tạo.")
+    try:
+        res = bookq.Q.enqueue(book_id, ns, regenerate=body.regenerate)
+    except bookq.QueueError as ex:
+        raise HTTPException(400, str(ex))
+    return {**res, **queue_state(book_id)}
+
+
+class FocusIn(BaseModel):
+    n: int
+
+
+@app.post("/api/books/{book_id}/queue/focus")
+def queue_focus(book_id: str, body: FocusIn):
+    """Chương đang mở trên giao diện: nếu đang chờ trong hàng đợi thì chạy trước."""
+    book_or_404(book_id)
+    return {"moved": bookq.Q.focus(book_id, body.n)}
+
+
+@app.post("/api/queue/pause")
+def queue_pause():
+    bookq.Q.pause()
+    return bookq.Q.status()
+
+
+@app.post("/api/queue/resume")
+def queue_resume():
+    bookq.Q.resume()
+    return bookq.Q.status()
+
+
+class CancelIn(BaseModel):
+    book: str | None = None
+
+
+@app.post("/api/queue/cancel")
+def queue_cancel(body: CancelIn | None = None):
+    n = bookq.Q.cancel(body.book if body else None)
+    return {"cancelled": n, **bookq.Q.status()}
+
+
+class QueueSettings(BaseModel):
+    inhibit_sleep: bool
+
+
+@app.post("/api/queue/settings")
+def queue_settings(body: QueueSettings):
+    bookq.Q.set_inhibit(body.inhibit_sleep)
+    return bookq.Q.status()
+
+
+@app.get("/api/books/{book_id}/disk")
+def books_disk(book_id: str):
+    """Dung lượng đã dùng của truyện (byte): tổng, audio gốc (FLAC + đoạn dở), file xuất, còn lại."""
+    book_or_404(book_id)
+    return books.disk_usage(book_id)
+
+
+@app.post("/api/books/{book_id}/audio/purge-exported")
+def books_purge_exported(book_id: str):
+    """Xoá FLAC của chương đã xuất. Chương chuyển sang "exported": không nghe lại / xuất lại được nữa cho tới khi Tạo lại."""
+    book_or_404(book_id)
+    n, freed = books.purge_exported(book_id)
+    return {"deleted": n, "freed": freed, **books.disk_usage(book_id)}
+
+
+@app.get("/api/books/{book_id}/chapters/{n}/audio.mp3")
+async def books_chapter_audio(book_id: str, n: int, kbps: int = 64):
+    """MP3 của chương đã dựng (nghe lại trong trình duyệt / tải về)."""
+    book = book_or_404(book_id)
+    try:
+        meta, _ = books.chapter_text(book_id, n)
+    except books.NotFound:
+        raise HTTPException(404, "Không có chương này.")
+    if meta.get("status") != "done" or not books.chapter_audio(book_id, n).is_file():
+        raise HTTPException(409, "Chương này chưa được tạo audio.")
+    try:
+        path = await anyio.to_thread.run_sync(exporter.chapter_mp3, book, meta, kbps, book["chapters"]["count"])
+    except exporter.ExportError as ex:
+        raise HTTPException(400, str(ex))
+    return FileResponse(path, media_type="audio/mpeg", filename=f"{n:04d} - {exporter.safe_name(meta.get('title') or str(n))}.mp3")
+
+
+class ExportIn(BaseModel):
+    kind: str = "mp3zip"                # mp3zip | m4b
+    chapters: list[int] | None = None   # None = mọi chương đã xong
+    kbps: int = 64                      # MP3: 64 / 80 / 96 (m4b luôn AAC 64k)
+
+
+@app.post("/api/books/{book_id}/export")
+async def books_export(book_id: str, body: ExportIn):
+    book = book_or_404(book_id)
+    try:
+        j = exporter.start(book, body.kind, body.chapters, body.kbps)
+    except exporter.ExportError as ex:
+        raise HTTPException(400, str(ex))
+    return {"id": j.id, "total": j.total}
+
+
+@app.get("/api/exports/{jid}")
+def export_status(jid: str):
+    j = exporter.JOBS.get(jid)
+    if j is None:
+        raise HTTPException(404, "Không tìm thấy việc xuất (đã hết hạn?).")
+    return {"id": j.id, "book": j.book, "kind": j.kind, "status": j.status, "done": j.done, "total": j.total, "chapters": j.chapters,
+            "file": j.file, "size": j.size, "error": j.error}
+
+
+@app.get("/api/books/{book_id}/export/{name}")
+def books_export_file(book_id: str, name: str):
+    book_or_404(book_id)
+    try:
+        path = exporter.file_path(book_id, name)
+    except exporter.ExportError as ex:
+        raise HTTPException(404, str(ex))
+    return FileResponse(path, filename=path.name, media_type="audio/mp4" if path.suffix == ".m4b" else "application/zip")
 
 
 if __name__ == "__main__":

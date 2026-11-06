@@ -139,6 +139,7 @@ _SENT_END = ".!?…"
 # Ký tự ngay trước từ đầu cụm cho biết từ đó đứng đầu câu / đầu lời thoại: . ! ? : … " “ « ‘ ' ( – — - 「 (hoặc đầu dòng)
 _BOUNDARY = set(".!?:…\"“”«»‘’'(–—―-「」『』[")
 MIN_PHRASE, MAX_PHRASE = 2, 4
+SINGLE_MIN = 5   # tiếng đơn (vd. "Viêm") chỉ được gợi ý khi đứng riêng, không ở đầu câu, ≥ ngần này lần
 
 
 def _is_cap(w: str) -> bool:
@@ -151,6 +152,7 @@ class Term:
     count: int = 0
     chapter: int = 0
     example: str = ""
+    parent: str = ""   # khác rỗng: gợi ý 1 tiếng, thành phần của cụm `parent`
 
 
 def _sentence(line: str, start: int, end: int, limit: int = 220) -> str:
@@ -164,7 +166,8 @@ def _sentence(line: str, start: int, end: int, limit: int = 220) -> str:
 
 
 def scan_line(line: str, stop: set[str]):
-    """Sinh (phrase, start, end) cho các cụm viết hoa 2–4 tiếng KHÔNG đứng đầu câu trong một dòng."""
+    """Sinh (phrase, start, end) cho các cụm viết hoa KHÔNG đứng đầu câu trong một dòng: 2–4 tiếng (gợi ý chính)
+    và 1 tiếng đứng riêng (chỉ dùng làm gợi ý phụ khi là thành phần của một cụm chính)."""
     toks = [(m.group(), m.start(), m.end()) for m in _WORD.finditer(line)]
     i, n = 0, len(toks)
     while i < n:
@@ -183,15 +186,16 @@ def scan_line(line: str, stop: set[str]):
             at_start = False
         while run and run[-1][0].lower() in stop:
             run = run[:-1]
-        if run and not at_start and MIN_PHRASE <= len(run) <= MAX_PHRASE:
+        if run and not at_start and len(run) <= MAX_PHRASE:  # 1 tiếng cũng yield; suggest_terms tách theo khoảng trắng
             yield " ".join(t[0] for t in run), run[0][1], run[-1][2]
         i = j + 1
 
 
 def suggest_terms(chapters, known: set[str] | None = None, min_count: int = 3, limit: int = 200,
-                  stop: set[str] | None = None) -> list[Term]:
-    """chapters: iterable (n, text). Trả các cụm viết hoa lặp lại ≥ min_count lần, xếp theo tần suất giảm dần.
-    `known`: các cụm đã có trong từ điển (so sánh không phân biệt hoa thường) sẽ bị bỏ."""
+                  stop: set[str] | None = None, single_min: int = SINGLE_MIN) -> list[Term]:
+    """chapters: iterable (n, text). Trả các cụm viết hoa 2–4 tiếng lặp lại ≥ min_count lần, xếp theo tần suất giảm dần;
+    ngay sau mỗi cụm là các tiếng đơn thành phần của nó (Term.parent = cụm cha) nếu tiếng đó đứng riêng, không ở đầu câu,
+    ≥ single_min lần. `known`: các cụm đã có trong từ điển (không phân biệt hoa thường) bị bỏ."""
     stop = load_stopwords() if stop is None else stop
     skip = {k.lower() for k in (known or set())}
     terms: dict[str, Term] = {}
@@ -204,6 +208,20 @@ def suggest_terms(chapters, known: set[str] | None = None, min_count: int = 3, l
                 if t is None:
                     t = terms[phrase] = Term(phrase, 0, n, _sentence(line, a, b))
                 t.count += 1
-    ranked = [t for t in terms.values() if t.count >= min_count and t.phrase.lower() not in skip]
+    ranked = [t for t in terms.values() if " " in t.phrase and t.count >= min_count and t.phrase.lower() not in skip]
     ranked.sort(key=lambda t: (-t.count, t.phrase))
-    return ranked[:limit]
+    ranked = ranked[:limit]
+    singles = {p: t for p, t in terms.items() if " " not in p and t.count >= single_min and p.lower() not in skip}
+    children: dict[str, list[Term]] = {}
+    used: set[str] = set()
+    for parent in ranked:  # mỗi tiếng đơn chỉ nằm dưới một cụm cha (cụm xuất hiện nhiều hơn)
+        for word in dict.fromkeys(parent.phrase.split()):
+            if word in singles and word not in used:
+                used.add(word)
+                s = singles[word]
+                children.setdefault(parent.phrase, []).append(Term(s.phrase, s.count, s.chapter, s.example, parent.phrase))
+    out: list[Term] = []
+    for parent in ranked:
+        out.append(parent)
+        out.extend(sorted(children.get(parent.phrase, []), key=lambda t: (-t.count, t.phrase)))
+    return out

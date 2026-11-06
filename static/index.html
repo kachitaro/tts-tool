@@ -135,6 +135,7 @@
   .brow .bh { grid-column:1 / -1; color:var(--muted); font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .brow .bm { color:var(--muted); font-size:12.5px; font-weight:400; margin-left:6px; }
   .brow .bact { display:flex; gap:6px; flex-wrap:wrap; }
+  @media (max-width: 760px) { .brow { grid-template-columns:minmax(0,1fr); } }  /* nhiều nút hành động: xuống dòng dưới tiêu đề */
   .crule { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto auto; gap:6px; margin-bottom:6px; align-items:center; }
   .lrow { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) 68px 68px auto auto auto; gap:6px; margin-bottom:6px; align-items:center; font-size:12.5px; }
   .lrow.head { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; margin-bottom:2px; }
@@ -142,6 +143,15 @@
   .lrow input[type=number] { padding:7px 6px; }
   .sug { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 10px; padding:8px 0; border-top:1px solid var(--line); align-items:center; }
   .sug .ex { grid-column:1 / -1; color:var(--muted); font-size:12.5px; overflow-wrap:anywhere; }
+  .qbar { height:8px; background:var(--line); border-radius:4px; overflow:hidden; margin:6px 0; }
+  .qbar > div { height:100%; width:0; background:var(--accent); transition:width .4s; }
+  .qbar.ok > div { background:var(--ok); }
+  .qpanel { margin:6px 0 14px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  .qrange { display:inline-flex; gap:6px; align-items:center; font-size:13px; color:var(--muted); }
+  .qrange input { width:70px; padding:6px 8px; }
+  .qwarn { color:var(--warn); font-size:13px; margin-top:4px; }
+  .qexp a { color:var(--accent); }
+  .sug.child { margin-left:26px; border-top:0; padding:4px 0 4px 10px; border-left:2px solid var(--line); }
   #bookDetail .card { margin-top:14px; }
   #bookDetail h3 { margin:0 0 6px; font-size:16px; }
   .exlist { margin:4px 0 12px; max-height:340px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:4px 10px; }
@@ -180,7 +190,7 @@
 </head>
 <body>
 <div class="wrap">
-  <header><h1>Giọng Việt</h1><span>Chuyển văn bản thành giọng nói</span></header>
+  <header><h1>Giọng Việt</h1><span>Chuyển văn bản thành giọng nói</span><span id="precBadge" class="hidden" style="margin-left:auto"></span></header>
   <nav class="tabs">
     <button data-tab="tts" class="on">Đọc văn bản</button>
     <button data-tab="lib">Thư viện giọng</button>
@@ -351,6 +361,11 @@
         </div>
         <label class="chk"><input type="checkbox" id="bkNorm" checked /><span>Chuẩn hoá văn bản (chỉ giọng VieNeu)</span></label>
         <label class="chk"><input type="checkbox" id="bkReadTitle" checked /><span>Đọc tiêu đề chương ở đầu mỗi chương</span></label>
+        <div class="mixbtns">
+          <label class="chk" style="margin:0" title="Khoảng lặng khi xuống đoạn văn (0 = không nghỉ)">Nghỉ giữa các đoạn văn <input type="number" id="bkParaPause" min="0" max="3" step="0.1" style="width:76px;margin:0 6px" /> giây</label>
+          <label class="chk" style="margin:0" title="Khoảng lặng sau tiêu đề chương (0 = không nghỉ)">Nghỉ sau tiêu đề <input type="number" id="bkTitlePause" min="0" max="5" step="0.1" style="width:76px;margin:0 6px" /> giây</label>
+        </div>
+        <div class="hint">Đổi các mức nghỉ làm các chương đã tạo thành "lỗi thời" (cần tạo lại để áp dụng).</div>
         <label class="chk"><input type="checkbox" id="bkDlgOn" /><span>Lời thoại (trong ngoặc kép hoặc sau gạch thoại) đọc bằng giọng thứ hai</span></label>
         <select id="bkDlgVoice" style="margin-top:8px" disabled></select>
         <div class="hint">Phần dẫn sau lời thoại ("– Đi đâu? – hắn hỏi.") vẫn do giọng kể đọc.</div>
@@ -410,6 +425,39 @@
       </div>
       <div class="card hidden" id="bkChapCard">
         <h3 id="bkChapTitle">Danh sách chương</h3>
+        <div class="qpanel">
+          <div class="hint" id="qSummary"></div>
+          <div class="qbar" id="qBar"><div></div></div>
+          <div class="hint" id="qRunning"></div>
+          <div class="qwarn" id="qNote"></div>
+          <div class="mixbtns">
+            <button class="btn pri" id="qAll" type="button">Chạy tất cả</button>
+            <button class="btn" id="qFirst5" type="button" title="Tạo thử 5 chương chưa xong đầu tiên để nghe chất lượng và đo tốc độ">Chạy thử 5 chương đầu</button>
+            <span class="qrange">Từ <input type="number" id="qFrom" min="1" value="1" /> đến <input type="number" id="qTo" min="1" value="1" />
+              <button class="btn" id="qRange" type="button">Chạy khoảng</button></span>
+            <button class="btn" id="qStale" type="button" hidden title="Chương đã dựng bằng giọng / từ điển / tốc độ cũ">Tạo lại chương lỗi thời</button>
+          </div>
+          <div class="mixbtns">
+            <button class="btn" id="qPause" type="button">Tạm dừng</button>
+            <button class="btn" id="qCancel" type="button" title="Bỏ các chương đang chờ; chương đang chạy dừng sau đoạn hiện tại">Huỷ hàng đợi</button>
+            <label class="chk"><input type="checkbox" id="qInhibit" checked /><span>Giữ máy không ngủ khi đang tạo <span id="qInhibitState" class="hint"></span></span></label>
+          </div>
+          <div id="qTrial" class="hidden" style="margin-top:10px">
+            <div class="hint" id="qTrialText"></div>
+            <div class="qbar"><div id="qTrialFill"></div></div>
+          </div>
+          <div class="mixbtns">
+            <select id="qKbps" title="Tốc độ bit MP3 (mono)" style="width:auto"><option value="64">MP3 64 kbps</option><option value="80">MP3 80 kbps</option><option value="96">MP3 96 kbps</option></select>
+            <button class="btn" id="qExpZip" type="button">Xuất MP3 (zip)</button>
+            <button class="btn" id="qExpM4b" type="button" title="Một file có đánh dấu chương (AAC 64 kbps)">Xuất .m4b</button>
+          </div>
+          <div class="hint" id="qExpMsg"></div>
+          <div class="mixbtns">
+            <span class="hint" id="qDisk"></span>
+            <button class="btn" id="qPurge" type="button" disabled title="Xoá audio gốc (FLAC) của các chương đã xuất MP3/m4b để giải phóng dung lượng">Xoá nguồn FLAC của chương đã xuất</button>
+          </div>
+          <div class="qexp hint" id="qExpList"></div>
+        </div>
         <div id="bkChapters"></div>
       </div>
     </div>
@@ -739,6 +787,8 @@ $("go").addEventListener("click", generate);
   updateCount();
   try { state.engines = await (await api("/api/engines")).json(); } catch {}
   renderEngines();
+  const prec = Object.values(state.engines).filter(e => e.available && e.precision).map(e => `${e.name.split("-")[0]} · ${e.precision}`);
+  if (prec.length) { $("precBadge").textContent = prec.join(" · "); $("precBadge").title = "Độ chính xác model đang dùng. Đổi bằng biến môi trường VIENEU_PRECISION (fp32 | int8); mặc định int8 nếu CPU có VNNI"; $("precBadge").classList.remove("hidden"); }
   const saved = localStorage.getItem("engine");
   const usable = (id) => state.engines[id]?.available;
   const first = Object.keys(state.engines).find(usable);
@@ -1326,7 +1376,8 @@ const fmtDur = (s) => (s >= 3600 ? `${(s / 3600).toFixed(1)} giờ` : s >= 60 ? 
 const STAT_LABEL = { control_chars: "dòng đã chuẩn hoá ký tự", url_lines: "dòng URL đã bỏ", credit_lines: "dòng nguồn/dịch giả đã bỏ",
   separators: "dấu ngăn cảnh → [nghỉ]", dup_lines: "dòng trùng đã bỏ", join_lines: "dòng đã gộp", custom: "chỗ thay thế tuỳ chỉnh",
   quotes: "dòng đã chuẩn hoá ngoặc kép", ellipsis: "dòng đã chuẩn hoá dấu ba chấm" };
-const STATUS_LABEL = { pending: "chưa tạo", running: "đang tạo", done: "đã xong", error: "lỗi" };
+const STATUS_LABEL = { pending: "chưa tạo", queued: "đang chờ", running: "đang tạo", done: "đã xong", exported: "đã xuất", error: "lỗi" };
+const fmtSize = (b) => b >= 1073741824 ? (b / 1073741824).toFixed(2) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
 
 async function loadBooks() {
   try {
@@ -1337,7 +1388,8 @@ async function loadBooks() {
 }
 
 function bookCard(b) {
-  const meta = [b.author, b.status === "ready" ? `${b.chapters} chương · ${b.chars.toLocaleString("vi-VN")} ký tự` : "chưa tách chương"].filter(Boolean).join(" · ");
+  const meta = [b.author, b.status === "ready" ? `${b.chapters} chương · ${b.chars.toLocaleString("vi-VN")} ký tự` : "chưa tách chương",
+    `đã dùng ${fmtSize(b.size_bytes || 0)}`].filter(Boolean).join(" · ");
   const name = h("div", "vname", b.title);
   if (b.status !== "ready") name.append(h("span", "badge", "Nháp"));
   return h("div", "vcard", name, h("div", "vmeta", meta),
@@ -1357,10 +1409,12 @@ async function openBook(id) {
   } catch (e) { return alert(e.message); }
   const b = bk.book;
   bk.ops = [...(b.split.ops || [])]; bk.clean = structuredClone(b.clean); bk.prev = null; bk.exceptions = structuredClone(b.exceptions || []);
+  q.chapSig = ""; delete $("qTo").dataset.set; $("qExpMsg").textContent = ""; $("qTrial").classList.add("hidden"); qPoll(true);
   $("bookList").classList.add("hidden"); $("bookDetail").classList.remove("hidden");
   $("bookName").textContent = b.title; bkMsg("");
   $("bkTitle").value = b.title; $("bkAuthor").value = b.author || ""; $("bkSpeed").value = String(b.speed);
   $("bkNorm").checked = b.normalize; $("bkReadTitle").checked = b.read_title;
+  $("bkParaPause").value = b.paragraph_pause_s ?? 0.6; $("bkTitlePause").value = b.title_pause_s ?? 1.2;
   $("bkMode").value = b.split.mode; $("bkRegex").value = b.split.regex;
   const key = `${b.voice.engine}|${b.voice.voice}`, sel = $("bkVoice");
   sel.replaceChildren(...bk.voices.map(v => voiceOpt(mixLabel(v), v, diaKey(v))));
@@ -1383,7 +1437,7 @@ async function saveSettings() {
   try {
     bk.book = { ...bk.book, ...(await (await api("/api/books/" + bk.book.id, { method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: $("bkTitle").value, author: $("bkAuthor").value, voice: { engine, voice }, speed: +$("bkSpeed").value,
-        normalize: $("bkNorm").checked, read_title: $("bkReadTitle").checked, clean: bk.clean, exceptions: bk.exceptions,
+        normalize: $("bkNorm").checked, read_title: $("bkReadTitle").checked, paragraph_pause_s: +$("bkParaPause").value || 0, title_pause_s: +$("bkTitlePause").value || 0, clean: bk.clean, exceptions: bk.exceptions,
         dialogue_voice: { enabled: $("bkDlgOn").checked, engine: dv.engine, voice: dv.voice } }) })).json()) };
     $("bookName").textContent = bk.book.title;
     bkMsg("Đã lưu cài đặt.", "ok");
@@ -1508,32 +1562,51 @@ async function bkConfirm() {
   } catch (e) { bkMsg(e.message, "err"); }
 }
 
+function chapStatus(c) {
+  if (c.status === "running" && c.segments) return `đang tạo (đoạn ${c.segments.done}/${c.segments.total})`;
+  if (c.status === "done") return `đã xong · ${fmtDur(Math.round(c.audio_seconds || 0))}` + (c.stale ? " · cài đặt đã đổi, nên tạo lại" : "");
+  if (c.status === "exported") return "đã xuất, nguồn FLAC đã xoá: cần tạo lại nếu muốn sửa";
+  if (c.status === "error") return `lỗi: ${c.error || ""}`;
+  if (c.status === "queued" && c.segments && c.segments.done) return `đang chờ (đã xong ${c.segments.done}/${c.segments.total} đoạn)`;
+  return STATUS_LABEL[c.status] || c.status;
+}
+
 function renderBookChapters() {
   const list = bk.book.chapters_list || [];
   $("bkChapCard").classList.toggle("hidden", !list.length);
   $("bkChapTitle").textContent = `Danh sách chương (${list.length})`;
+  $("qTo").value = $("qTo").dataset.set ? $("qTo").value : list.length; $("qTo").max = $("qFrom").max = list.length;
+  $("qStale").hidden = !list.some(c => c.stale);
   $("bkChapters").replaceChildren(...list.map(c => h("div", "brow",
     h("div", "bt", `${c.n}. ${c.title || "(không tiêu đề)"}`,
-      h("span", "bm", `${c.chars.toLocaleString("vi-VN")} ký tự · ~${fmtDur(c.est_seconds)} · ${STATUS_LABEL[c.status] || c.status}`)),
+      h("span", "bm", `${c.chars.toLocaleString("vi-VN")} ký tự · ~${fmtDur(c.est_seconds)} · ${chapStatus(c)}`)),
     h("div", "bact", btn("▶", "Nghe thử đầu chương (~300 ký tự)", (b) => playChapter(c.n, b)),
-      btn("Đọc thử 1 phút", "Đọc ~900 ký tự từ đầu chương bằng giọng + từ điển + giọng lời thoại", (b) => playChapter(c.n, b, 900, 0)),
-      btn("…giữa chương", "Đọc thử ~1 phút bắt đầu từ giữa chương (nơi hay có lời thoại và tên riêng)", (b) => playChapter(c.n, b, 900, 0.5)),
-      btn("Xem", "Xem văn bản đã làm sạch", () => viewChapter(c.n))))));
+      btn("Đọc thử 1 phút", "Đọc ~900 ký tự từ đầu chương bằng giọng + từ điển + giọng lời thoại (ưu tiên cao nhất trong hàng đợi)", (b) => trialChapter(c.n, 0, b)),
+      btn("…giữa chương", "Đọc thử ~1 phút bắt đầu từ giữa chương (nơi hay có lời thoại và tên riêng)", (b) => trialChapter(c.n, 0.5, b)),
+      ...(c.status === "done" ? [btn("Nghe", "Nghe lại bản đã tạo", () => { qFocus(c.n); playUrl(`/api/books/${bk.book.id}/chapters/${c.n}/audio.mp3`); })] : []),
+      ...(["pending", "error"].includes(c.status) ? [btn("Tạo", "Xếp chương này vào hàng đợi", () => qRun({ chapters: [c.n] }))] : []),
+      ...(["done", "exported"].includes(c.status) ? [btn("Tạo lại", "Xoá bản đã tạo và dựng lại (model đọc lại, có thể khác bản cũ)", () => { if (confirm(`Tạo lại chương ${c.n}? Bản audio hiện tại sẽ bị xoá.`)) qRun({ chapters: [c.n], regenerate: true }); })] : []),
+      btn("Xem", "Xem văn bản đã làm sạch", () => { qFocus(c.n); viewChapter(c.n); })))));
 }
 
-async function playChapter(n, b, chars = 300, offset = 0) {
+async function playChapter(n, b) {
   player?.pause();
   const old = b.textContent;
   b.disabled = true; b.textContent = "…";
-  bkMsg(chars > 300 ? "Đang tạo bản đọc thử, có thể mất vài chục giây…" : "");
   try {
-    const res = await api(`/api/books/${bk.book.id}/chapters/${n}/sample?chars=${chars}&offset=${offset}`);
-    const secs = res.headers.get("X-Sample-Seconds");
-    player = new Audio(URL.createObjectURL(await res.blob()));
+    qFocus(n);
+    const blob = await (await api(`/api/books/${bk.book.id}/chapters/${n}/sample`)).blob();
+    player = new Audio(URL.createObjectURL(blob));
     await player.play();
-    bkMsg(chars > 300 ? `Đang phát bản đọc thử ${secs} giây (chương ${n}).` : "", "ok");
+    bkMsg("");
   } catch (e) { bkMsg(e.message, "err"); }
   finally { b.disabled = false; b.textContent = old; }
+}
+
+function playUrl(url) {
+  player?.pause();
+  player = new Audio(url);
+  player.play().catch(e => bkMsg(e.message, "err"));
 }
 
 // ── từ điển phát âm ──
@@ -1576,7 +1649,7 @@ async function scanTerms() {
 }
 
 function sugRow(t) {
-  const row = h("div", "sug", h("div", "bt", t.phrase, h("span", "bm", `${t.count.toLocaleString("vi-VN")} lần · chương ${t.chapter}`)),
+  const row = h("div", t.parent ? "sug child" : "sug", h("div", "bt", t.phrase, h("span", "bm", `${t.count.toLocaleString("vi-VN")} lần${t.parent ? ` đứng riêng · thành phần của "${t.parent}"` : ""} · chương ${t.chapter}`)),
     h("div", "bact",
       btn("▶ Nghe thử", "Đọc câu ví dụ bằng giọng của truyện (có áp dụng từ điển hiện có)", async (b) => {
         const old = b.textContent; b.disabled = true; b.textContent = "…";
@@ -1638,6 +1711,154 @@ $("bkOpsReset").addEventListener("click", () => { bk.ops = []; bkPreview(); });
 $("bkRegexDefault").addEventListener("click", () => { $("bkRegex").value = bk.book.default_regex; });
 $("bkAddRule").addEventListener("click", () => { bk.clean.custom.push({ pattern: "", replace: "", enabled: true }); renderCustom(); });
 $("bkSepPause").addEventListener("input", () => { bk.clean.separator_pause = +$("bkSepPause").value; });
+
+// ───────────── hàng đợi tạo audio ─────────────
+const q = { last: null, chapSig: "", seenFinish: null, trial: false, timer: null };
+const qPost = (url, body) => api(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }).then(r => r.json());
+const qFocus = (n) => { if (bk.book) qPost(`/api/books/${bk.book.id}/queue/focus`, { n }).catch(() => {}); };
+const QSTATE = { running: "đang chạy", pausing: "đang tạm dừng (chờ xong đoạn hiện tại)…", paused: "đã tạm dừng", idle: "rảnh" };
+const sizeMB = (b) => (b / 1048576).toFixed(1) + " MB";
+const askNotify = () => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); };
+
+async function qRun(body) {
+  askNotify(); // xin quyền thông báo khi người dùng chủ động bấm chạy
+  try {
+    const r = await qPost(`/api/books/${bk.book.id}/queue/run`, body);
+    bkMsg(`Đã xếp ${r.added.length} chương vào hàng đợi` + (r.skipped.length ? ` (bỏ qua ${r.skipped.length} chương đã xong / đang chạy / đã có trong hàng đợi)` : "") + ".", "ok");
+    q.chapSig = ""; qPoll(true);
+  } catch (e) { bkMsg(e.message, "err"); }
+}
+
+function renderQueue(s) {
+  const c = s.counts || {}, done = (c.done || 0) + (c.exported || 0), total = s.chapters || 0;
+  $("qSummary").textContent = `Hàng đợi: ${QSTATE[s.state]} · ${done}/${total} chương đã xong` + (c.queued ? ` · ${c.queued} đang chờ` : "") + (c.error ? ` · ${c.error} lỗi` : "") +
+    (s.remaining ? (s.estimate_seconds != null
+      ? ` · Ước tính: ${fmtDur(s.estimate_seconds)} cho ${s.remaining} chương còn lại (${s.rate_cps} ký tự/giây, ${s.rate_source})`
+      : ` · Ước tính: chưa có số đo tốc độ (chạy scripts/bench_vieneu.py hoặc "Chạy thử 5 chương đầu" để đo)`) : "");
+  const r = s.running && s.running.book === bk.book.id ? s.running : null;
+  const frac = total ? (done + (r && r.seg_total ? r.seg_done / r.seg_total : 0)) / total : 0;
+  $("qBar").firstElementChild.style.width = `${Math.round(frac * 100)}%`;
+  $("qBar").classList.toggle("ok", total > 0 && done === total);
+  $("qRunning").textContent = s.running ? `Đang tạo ${s.running.book_title ? `"${s.running.book_title}" ` : ""}chương ${s.running.n}: ${s.running.title || ""} — đoạn ${s.running.seg_done}/${s.running.seg_total || "?"}` : "";
+  $("qNote").textContent = s.note || "";
+  $("qPause").textContent = s.paused ? "Tiếp tục" : "Tạm dừng";
+  $("qPause").disabled = !s.paused && s.state === "idle";
+  $("qCancel").disabled = !s.queued_book && !(r);
+  $("qInhibit").checked = s.inhibit_sleep;
+  $("qInhibitState").textContent = s.inhibit === "on" ? "(đang giữ)" : s.inhibit === "unavailable" ? "(máy không có systemd-inhibit)" : s.inhibit === "error" ? "(systemd-inhibit lỗi, xem log server)" : "";
+  $("qExpZip").disabled = $("qExpM4b").disabled = !c.done;
+  const pg = s.purgeable || { chapters: 0, bytes: 0 };
+  $("qPurge").disabled = !pg.chapters;
+  $("qPurge").textContent = pg.chapters ? `Xoá nguồn FLAC của chương đã xuất (${pg.chapters} chương, ${fmtSize(pg.bytes)})` : "Xoá nguồn FLAC của chương đã xuất";
+  $("qExpList").replaceChildren(...(s.exports || []).map(f => {
+    const a = h("a", "", `${f.name} (${sizeMB(f.size)})`); a.href = `/api/books/${bk.book.id}/export/${encodeURIComponent(f.name)}`; a.download = f.name;
+    return h("div", "", "Đã xuất: ", a);
+  }));
+}
+
+function notifyDone(f) {
+  const body = `${f.title || "Sách nói"}: xong ${f.done} chương` + (f.errors ? `, ${f.errors} lỗi` : "");
+  if (bk.book && !$("bookDetail").classList.contains("hidden")) bkMsg("Hàng đợi đã chạy xong. " + body, f.errors ? "err" : "ok");
+  if ("Notification" in window && Notification.permission === "granted") new Notification("Giọng Việt — tạo sách nói xong", { body });
+}
+
+async function qPoll(now = false) {
+  clearTimeout(q.timer);
+  const open = bk.book && !$("bookDetail").classList.contains("hidden") && !$("tab-book").classList.contains("hidden");
+  try {
+    const s = await (await api(open ? `/api/queue?book=${bk.book.id}` : "/api/queue")).json();
+    q.last = s;
+    if (open) {
+      renderQueue(s);
+      const sig = JSON.stringify([s.counts, s.running && [s.running.n, s.running.seg_done]]);
+      if (sig !== q.chapSig) {
+        q.chapSig = sig;
+        bk.book.chapters_list = await (await api(`/api/books/${bk.book.id}/chapters`)).json();
+        renderBookChapters();
+        refreshDisk();
+      }
+    }
+    if (q.seenFinish === null) q.seenFinish = s.finish.seq;
+    else if (s.finish.seq > q.seenFinish) { q.seenFinish = s.finish.seq; notifyDone(s.finish); }
+  } catch { /* server tạm không trả lời: thử lại lần sau */ }
+  q.timer = setTimeout(qPoll, open ? 2000 : 5000);
+}
+
+async function refreshDisk() {
+  try {
+    const d = await (await api(`/api/books/${bk.book.id}/disk`)).json();
+    $("qDisk").textContent = `Dung lượng đã dùng: ${fmtSize(d.total)} (audio gốc ${fmtSize(d.audio)} · file xuất ${fmtSize(d.export)} · nguồn và văn bản ${fmtSize(d.other)})`;
+  } catch { /* bỏ qua */ }
+}
+
+async function purgeExported() {
+  const pg = (q.last && q.last.purgeable) || { chapters: 0, bytes: 0 };
+  if (!confirm(`Xoá audio gốc (FLAC) của ${pg.chapters} chương đã xuất, giải phóng khoảng ${fmtSize(pg.bytes)}?\n\nCác chương này chuyển sang "đã xuất": không nghe lại hay xuất lại được nữa, muốn sửa phải Tạo lại chương. File zip / m4b đã xuất không bị xoá.`)) return;
+  try {
+    const r = await qPost(`/api/books/${bk.book.id}/audio/purge-exported`);
+    bkMsg(`Đã xoá nguồn FLAC của ${r.deleted} chương, giải phóng ${fmtSize(r.freed)}.`, "ok");
+    q.chapSig = ""; qPoll(true);
+  } catch (e) { bkMsg(e.message, "err"); }
+}
+
+async function trialChapter(n, offset, b) {
+  if (q.trial) return bkMsg("Đang có một bản đọc thử chạy, hãy đợi nó xong.", "err");
+  q.trial = true; player?.pause();
+  qFocus(n);
+  const box = $("qTrial"), fill = $("qTrialFill"), text = $("qTrialText"), t0 = Date.now();
+  try {
+    const t = await qPost(`/api/books/${bk.book.id}/chapters/${n}/trial`, { chars: 900, offset });
+    box.classList.remove("hidden"); fill.style.width = "0%";
+    for (;;) {
+      const s = await (await api(`/api/trials/${t.id}`)).json();
+      const secs = Math.round((Date.now() - t0) / 1000);
+      fill.style.width = `${Math.round(100 * s.done / Math.max(1, s.total))}%`;
+      text.textContent = s.status === "queued" ? `Đọc thử chương ${n}: đang chờ tới lượt (chen vào sau mảnh đang chạy)… ${secs}s`
+        : `Đọc thử chương ${n}: mảnh ${Math.min(s.done + 1, s.total)}/${s.total} · ${secs}s`;
+      if (s.status === "error") throw new Error(s.error || "Đọc thử lỗi");
+      if (s.status === "done") {
+        text.textContent = `Đọc thử chương ${n}: xong sau ${secs}s, audio ${s.seconds}s.`; fill.style.width = "100%";
+        playUrl(`/api/trials/${t.id}/audio`);
+        break;
+      }
+      await new Promise(r => setTimeout(r, 600));
+    }
+  } catch (e) { text.textContent = ""; bkMsg(e.message, "err"); }
+  finally { q.trial = false; setTimeout(() => { if (!q.trial) box.classList.add("hidden"); }, 8000); }
+}
+
+async function qExport(kind) {
+  $("qExpMsg").textContent = "Đang chuẩn bị…";
+  try {
+    const j = await qPost(`/api/books/${bk.book.id}/export`, { kind, kbps: +$("qKbps").value });
+    for (;;) {
+      const s = await (await api(`/api/exports/${j.id}`)).json();
+      const pct = Math.round(100 * s.done / Math.max(1, s.total));
+      if (s.status === "error") throw new Error(s.error);
+      if (s.status === "done") { $("qExpMsg").textContent = `Đã xuất ${s.chapters} chương: ${s.file} (${sizeMB(s.size)}).`; break; }
+      $("qExpMsg").textContent = `Đang xuất ${kind === "m4b" ? ".m4b" : "MP3"}… ${pct}%`;
+      await new Promise(r => setTimeout(r, 600));
+    }
+    qPoll(true); refreshDisk();
+  } catch (e) { $("qExpMsg").textContent = ""; bkMsg(e.message, "err"); }
+}
+
+$("qAll").addEventListener("click", () => qRun({}));
+$("qFirst5").addEventListener("click", () => qRun({ limit: 5 }));
+$("qRange").addEventListener("click", () => {
+  const a = +$("qFrom").value, z = +$("qTo").value;
+  if (!(a >= 1 && z >= a)) return bkMsg("Khoảng chương không hợp lệ.", "err");
+  qRun({ chapters: Array.from({ length: z - a + 1 }, (_, i) => a + i) });
+});
+$("qTo").addEventListener("input", () => { $("qTo").dataset.set = "1"; });
+$("qStale").addEventListener("click", () => qRun({ stale_only: true, regenerate: true }));
+$("qPause").addEventListener("click", async () => { await qPost(q.last && q.last.paused ? "/api/queue/resume" : "/api/queue/pause"); qPoll(true); });
+$("qCancel").addEventListener("click", async () => { if (confirm("Huỷ hàng đợi của truyện này? Chương đang chạy dừng sau đoạn hiện tại; các đoạn đã tạo được giữ để chạy tiếp lần sau.")) { await qPost("/api/queue/cancel", { book: bk.book.id }); qPoll(true); } });
+$("qInhibit").addEventListener("change", async () => { await qPost("/api/queue/settings", { inhibit_sleep: $("qInhibit").checked }); qPoll(true); });
+$("qPurge").addEventListener("click", purgeExported);
+$("qExpZip").addEventListener("click", () => qExport("mp3zip"));
+$("qExpM4b").addEventListener("click", () => qExport("m4b"));
+qPoll();
 </script>
 </body>
 </html>

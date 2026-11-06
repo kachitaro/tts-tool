@@ -1,7 +1,46 @@
 from __future__ import annotations
 
+import contextvars
+import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
+
+# Việc nền (hàng đợi sách nói) đặt cờ này trong task của nó; anyio.to_thread chép contextvars sang thread chạy model.
+BACKGROUND: contextvars.ContextVar[bool] = contextvars.ContextVar("tts_background", default=False)
+
+
+class PriorityLock:
+    """Khoá chạy model: request tương tác (mặc định) luôn được nhận khoá trước việc nền khi cả hai đang chờ.
+    Việc đang giữ khoá không bị ngắt: tương tác chờ tối đa một mảnh nền (≤ ~500 ký tự) rồi vào trước."""
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._held = False
+        self._waiting_fg = 0
+
+    def acquire(self) -> None:
+        background = BACKGROUND.get()
+        with self._cond:
+            if not background:
+                self._waiting_fg += 1
+            try:
+                while self._held or (background and self._waiting_fg):
+                    self._cond.wait()
+            finally:
+                if not background:
+                    self._waiting_fg -= 1
+            self._held = True
+
+    def release(self) -> None:
+        with self._cond:
+            self._held = False
+            self._cond.notify_all()
+
+    def __enter__(self) -> None:
+        self.acquire()
+
+    def __exit__(self, *exc) -> None:
+        self.release()
 
 
 class Engine(ABC):
@@ -58,6 +97,10 @@ class Engine(ABC):
 
     def unusable_reason(self, meta: dict) -> str | None:
         """Lý do một giọng thư viện của engine này hiện không dùng được (vd. "tạo ở mode x"), hoặc None."""
+        return None
+
+    def precision(self) -> str | None:
+        """Độ chính xác số học model đang dùng (vd. "int8"), hoặc None nếu engine không có khái niệm này. Hiện ở header UI."""
         return None
 
     def cache_tag(self) -> str:

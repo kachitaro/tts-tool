@@ -1,0 +1,42 @@
+# Động từ nói/phát âm dùng để nhận ra PHẦN DẪN viết hoa sau gạch thoại:
+#   – Đi đâu? – Hắn hỏi.     →  "Hắn hỏi." là phần dẫn (giọng kể), không phải một câu thoại mới.
+# Quy tắc (narrate.py): đoạn sau gạch thứ 2 trở đi, viết hoa, dài ≤ 60 ký tự và có một động từ dưới đây trong 4 tiếng đầu.
+# Mỗi dòng một động từ hoặc cụm từ (không phân biệt hoa thường); "#" là chú thích. Sửa file là có hiệu lực ngay, không cần khởi động lại.
+hỏi
+nói
+đáp
+quát
+cười
+gắt
+thì thầm
+lẩm bẩm
+hét
+kêu
+bảo
+thốt
+trả lời
+gọi
+la
+reo
+rên
+thở dài
+mắng
+nạt
+cằn nhằn
+càu nhàu
+lầm bầm
+nhắc
+tiếp lời
+lên tiếng
+cất tiếng
+gằn giọng
+hừ
+rống
+gào
+thét
+xen vào
+chen vào
+đáp lời
+phản đối
+giải thích
+khẽ gọi

@@ -10,6 +10,7 @@ import io
 import os
 import sys
 import tempfile
+import time
 import unicodedata
 import zipfile
 from pathlib import Path
@@ -22,6 +23,7 @@ import httpx  # noqa: E402
 import books  # noqa: E402
 import lexicon  # noqa: E402
 import narrate  # noqa: E402
+from engines.registry import ENGINES  # noqa: E402
 
 B = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8765"
 client = httpx.Client(timeout=180)
@@ -462,11 +464,162 @@ def t_cleanup_names() -> None:
 def t_trial_read() -> None:
     bid = state["names"]
     j(client.patch(f"{B}/api/books/{bid}", json={"lexicon": []}))
-    r = client.get(f"{B}/api/books/{bid}/chapters/2/sample?chars=900&offset=0.3")
-    secs = wav_seconds(r)
-    assert 3 <= secs <= 90 and int(r.headers["x-sample-chars"]) > 100, (secs, r.headers["x-sample-chars"])
-    assert client.get(f"{B}/api/books/{bid}/chapters/2/sample?chars=10").status_code == 400
-    assert client.get(f"{B}/api/books/{bid}/chapters/2/sample?offset=2").status_code == 400
+    t = j(client.post(f"{B}/api/books/{bid}/chapters/2/trial", json={"chars": 900, "offset": 0.3}))
+    assert t["total"] >= 1 and t["chars"] > 100, t
+    deadline = time.time() + 240
+    while True:
+        st = j(client.get(f"{B}/api/trials/{t['id']}"))
+        assert st["status"] != "error", st
+        if st["status"] == "done":
+            break
+        assert time.time() < deadline, st
+        time.sleep(0.5)
+    r = client.get(f"{B}/api/trials/{t['id']}/audio")
+    assert r.status_code == 200 and r.content[:4] == b"RIFF" and 3 <= st["seconds"] <= 120 and st["done"] == st["total"], st
+    assert client.post(f"{B}/api/books/{bid}/chapters/2/trial", json={"chars": 10}).status_code == 400
+    assert client.post(f"{B}/api/books/{bid}/chapters/2/trial", json={"offset": 2}).status_code == 400
+    assert client.get(f"{B}/api/trials/khong-co").status_code == 404
+
+
+
+# ───────────── phần dẫn viết hoa (config/speech_verbs.txt) + gợi ý tên 1 tiếng ─────────────
+LEAD_CASES = [
+    ("– Đi đâu? – Hắn hỏi.", [("dlg", "Đi đâu?"), ("narr", "Hắn hỏi.")]),
+    ("— Không! — Nàng thì thầm, giọng run run.", [("dlg", "Không!"), ("narr", "Nàng thì thầm, giọng run run.")]),
+    ("– Anh đi đâu? – Tôi đi chợ.", [("dlg", "Anh đi đâu? Tôi đi chợ.")]),                       # không có động từ nói → câu thoại mới
+    ("– Đi đi. – Hắn hỏi: – Về đâu? – Nàng đáp.", [("dlg", "Đi đi."), ("narr", "Hắn hỏi:"), ("dlg", "Về đâu?"), ("narr", "Nàng đáp.")]),
+    ("– Về nhà. – Hắn nói một câu rất rất rất dài dòng chỉ để vượt quá giới hạn sáu mươi ký tự cho phép.",
+     [("dlg", "Về nhà. Hắn nói một câu rất rất rất dài dòng chỉ để vượt quá giới hạn sáu mươi ký tự cho phép.")]),  # quá 60 ký tự
+]
+
+
+def t_lead_in_cases() -> None:
+    bad = [(src, narrate.split_line(src), want) for src, want in LEAD_CASES if narrate.split_line(src) != want]
+    assert not bad, bad
+
+
+def t_speech_verbs_file_editable() -> None:
+    path = narrate.SPEECH_VERBS_PATH
+    old = path.read_text(encoding="utf-8")
+    try:
+        assert narrate.split_line("– Xong rồi. – Hắn khịt mũi.") == [("dlg", "Xong rồi. Hắn khịt mũi.")]       # "khịt" chưa có trong danh sách
+        path.write_text(old + "khịt\n", encoding="utf-8")
+        os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 2))                                      # mtime đổi chắc chắn
+        assert narrate.split_line("– Xong rồi. – Hắn khịt mũi.") == [("dlg", "Xong rồi."), ("narr", "Hắn khịt mũi.")]
+    finally:
+        path.write_text(old, encoding="utf-8")
+        os.utime(path, (path.stat().st_atime, path.stat().st_mtime + 4))
+
+
+def t_suggest_single() -> None:
+    text = "Hắn nhìn Tiêu Viêm rồi cười. Rồi Viêm bước vào Vân Lam Tông.\n" * 6 + "Viêm Viêm bước đi. Viêm nói.\n"
+    t = lexicon.suggest_terms([(1, text)], min_count=3)
+    names = [(x.phrase, x.parent) for x in t]
+    assert names == [("Tiêu Viêm", ""), ("Viêm", "Tiêu Viêm"), ("Vân Lam Tông", "")], names               # tiếng đơn nằm ngay dưới cụm cha
+    assert t[1].count == 6 and "Viêm" in t[1].example
+    few = "Hắn nhìn Tiêu Viêm rồi cười. Rồi Viêm bước vào.\n" * 4                                           # "Viêm" đứng riêng chỉ 4 lần < 5
+    assert [x.phrase for x in lexicon.suggest_terms([(1, few)], min_count=3)] == ["Tiêu Viêm"]
+    assert [x.phrase for x in lexicon.suggest_terms([(1, text)], {"viêm"}, 3)] == ["Tiêu Viêm", "Vân Lam Tông"]  # đã có trong từ điển
+
+
+
+# ───────────── v2.1: đoạn văn, khoảng nghỉ, precision, dung lượng ─────────────
+def t_paragraph_segments() -> None:
+    book = {"read_title": True, "paragraph_pause_s": 0.6, "title_pause_s": 1.2}
+    meta = {"title": "Chương 1"}
+    body = "Đoạn A ngắn.\n\nĐoạn B ngắn.\n[nghỉ 1.5s]\nĐoạn C ngắn.\n[nghỉ 2s]"
+    paras = books.paragraphs(book, meta, body)
+    assert paras == [["Chương 1", 1.2], ["Đoạn A ngắn.", 0.6], ["Đoạn B ngắn.", 1.5], ["Đoạn C ngắn.", 2.0]], paras       # dấu ngăn cảnh thay khoảng nghỉ đoạn
+    assert narrate.join_paras(paras) == "Chương 1\n[nghỉ 1.2s]\nĐoạn A ngắn.\n[nghỉ 0.6s]\nĐoạn B ngắn.\n[nghỉ 1.5s]\nĐoạn C ngắn."  # không thẻ sau đoạn cuối
+    assert books.paragraphs({**book, "read_title": False}, meta, body)[0][0] == "Đoạn A ngắn."
+    assert "[nghỉ" not in narrate.join_paras(books.paragraphs({**book, "paragraph_pause_s": 0, "title_pause_s": 0}, meta, "Đoạn A.\nĐoạn B."))  # 0 = không nghỉ
+    # chỉ cắt ở ranh giới đoạn văn
+    segs = narrate.split_segments(paras, 25)
+    assert [[t for t, _ in s.paras] for s in segs] == [["Chương 1", "Đoạn A ngắn."], ["Đoạn B ngắn."], ["Đoạn C ngắn."]], [s.paras for s in segs]
+    assert not any(s.cont for s in segs)
+    # thẻ nghỉ ở mối nối: cuối đoạn trước; đoạn cuối chương không có
+    assert [narrate.segment_text(segs, k).endswith("]") for k in range(3)] == [True, True, False]
+    assert narrate.segment_text(segs, 1) == "Đoạn B ngắn.\n[nghỉ 1.5s]"
+    # đoạn văn dài hơn giới hạn mới cắt, ở ranh giới câu; mối nối giữa các mảnh không có thẻ nghỉ đoạn văn
+    long = " ".join(f"Đây là câu số {i} của đoạn văn rất dài." for i in range(1, 11))
+    segs = narrate.split_segments([["Mở", 0.6], [long, 0.6], ["Cuối.", 0.6]], 120)
+    assert len(segs) > 3 and all(len(narrate.join_paras(s.paras)) <= 120 for s in segs), [len(narrate.join_paras(s.paras)) for s in segs]
+    assert [s.cont for s in segs][:2] == [False, False] and any(s.cont for s in segs)
+    first_piece = next(k for k, s in enumerate(segs) if s.paras[0][0].startswith("Đây là câu số 1 "))
+    for k, s in enumerate(segs[:-1]):
+        nxt_cont = segs[k + 1].cont
+        assert narrate.segment_text(segs, k).rstrip().endswith("]") == (not nxt_cont), (k, narrate.segment_text(segs, k)[-30:])
+    assert first_piece == 1 and all(s.paras[0][0].endswith(".") for s in segs[1:-1])                        # cắt ở dấu chấm câu
+    # excerpt theo đoạn văn
+    ex = books.excerpt_paras([["x" * 100 + ".", 0.6]] * 6, 300)
+    assert 3 <= len(ex) <= 4, len(ex)
+    assert books.excerpt_paras([["a" * 10, 0.6], ["b" * 10, 0.6], ["c" * 10, 0.6]], 5, 0.99)[0][0].startswith("c")
+
+
+def t_units_no_double_gap() -> None:
+    e = ENGINES["vieneu"]
+    us = narrate.units("Hắn nói với nàng.\n[nghỉ 0.6s]\n– Đi thôi.", (e, "a"), (e, "b"), True)
+    kinds = [(u.kind, u.pause) for u in us]
+    assert kinds == [("text", False), ("silence", True), ("text", False)], kinds                          # đổi giọng ngay chỗ xuống đoạn: chỉ một khoảng nghỉ
+    assert 0.4 < us[1].seconds < 0.6, us[1].seconds
+    us = narrate.units("Hắn nói với nàng.\n– Đi thôi.", (e, "a"), (e, "b"), True)
+    assert [(u.kind, u.pause) for u in us] == [("text", False), ("silence", False), ("text", False)]      # không có thẻ: khoảng nghỉ đổi giọng nhỏ như cũ
+
+
+def t_precision_default() -> None:
+    from engines import vieneu
+
+    old = os.environ.pop("VIENEU_PRECISION", None)
+    real = vieneu.has_vnni
+    try:
+        vieneu.has_vnni = lambda: True
+        assert vieneu.default_precision() == "int8"
+        vieneu.has_vnni = lambda: False
+        assert vieneu.default_precision() == "fp32"
+        os.environ["VIENEU_PRECISION"] = "int8"
+        assert vieneu.default_precision() == "int8"                 # ghi đè được dù CPU không có VNNI
+        vieneu.has_vnni = lambda: True
+        os.environ["VIENEU_PRECISION"] = "FP32"
+        assert vieneu.default_precision() == "fp32"
+        os.environ["VIENEU_PRECISION"] = "bf16"
+        assert vieneu.default_precision() == "int8"                 # giá trị lạ: tự chọn theo CPU
+        eng = ENGINES["vieneu"]
+        os.environ["VIENEU_PRECISION"] = "int8"
+        tag_int8 = eng.cache_tag()
+        os.environ["VIENEU_PRECISION"] = "fp32"
+        assert tag_int8.endswith("-int8") and eng.cache_tag() == eng._mode and tag_int8 != eng.cache_tag()  # cache fp32 / int8 tách nhau
+    finally:
+        vieneu.has_vnni = real
+        os.environ.pop("VIENEU_PRECISION", None)
+        if old is not None:
+            os.environ["VIENEU_PRECISION"] = old
+
+
+def t_engines_precision_api() -> None:
+    e = j(client.get(f"{B}/api/engines"))
+    assert e["vieneu"]["precision"] in ("fp32", "int8") and e["edge"]["precision"] is None, {k: v["precision"] for k, v in e.items()}
+
+
+def t_pause_settings_api() -> None:
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("p.txt", STORY.encode(), "text/plain"))], data={"title": "Nghỉ smoke"}))
+    bid = d["id"]
+    assert d["paragraph_pause_s"] == 0.6 and d["title_pause_s"] == 1.2, (d["paragraph_pause_s"], d["title_pause_s"])
+    b = j(client.patch(f"{B}/api/books/{bid}", json={"paragraph_pause_s": 0.8, "title_pause_s": 0}))
+    assert b["paragraph_pause_s"] == 0.8 and b["title_pause_s"] == 0
+    for body in ({"paragraph_pause_s": 7}, {"title_pause_s": 5.1}, {"paragraph_pause_s": 0.05}, {"paragraph_pause_s": -1}):
+        assert client.patch(f"{B}/api/books/{bid}", json=body).status_code == 400, body
+    state["pauses"] = bid
+
+
+def t_disk_api() -> None:
+    bid = state["pauses"]
+    d = j(client.get(f"{B}/api/books/{bid}/disk"))
+    assert d["total"] > 0 and d["audio"] == 0 and d["export"] == 0 and d["other"] == d["total"], d
+    lst = j(client.get(f"{B}/api/books"))
+    assert next(b for b in lst if b["id"] == bid)["size_bytes"] == d["total"]
+    assert client.get(f"{B}/api/books/khong-co/disk").status_code == 404
+    assert j(client.post(f"{B}/api/books/{bid}/audio/purge-exported"))["deleted"] == 0
+    j(client.delete(f"{B}/api/books/{bid}"))
 
 
 
@@ -475,6 +628,12 @@ for name, fn in [
     ("6a+: ngoại lệ \"Giữ dòng này\" (xoá, thay thế, gộp)", t_exceptions_module),
     ("6b: tách lời thoại — 10 ví dụ (ngoặc kép, gạch thoại, phần dẫn, thuật ngữ, ngoặc không đóng)", t_dialogue_cases),
     ("6b: gộp đoạn cùng giọng thành run, giữ ngắt dòng / đoạn", t_dialogue_runs),
+    ("v2.1: đoạn văn → đoạn cắt chỉ ở ranh giới đoạn văn, thẻ nghỉ ở mối nối, đoạn dài cắt ở ranh giới câu", t_paragraph_segments),
+    ("v2.1: đổi giọng đúng chỗ xuống đoạn chỉ có một khoảng nghỉ", t_units_no_double_gap),
+    ("v2.1: precision mặc định theo VNNI, VIENEU_PRECISION ghi đè, cache_tag tách fp32 / int8", t_precision_default),
+    ("6b+: phần dẫn viết hoa sau gạch thoại (5 ví dụ)", t_lead_in_cases),
+    ("6b+: config/speech_verbs.txt sửa được, có hiệu lực ngay", t_speech_verbs_file_editable),
+    ("6b+: gợi ý tên 1 tiếng chỉ khi là thành phần cụm đã gợi ý, đứng riêng ≥ 5 lần", t_suggest_single),
     ("6b: từ điển — đọc thành, nghỉ trước/sau, nguyên từ, hoa/thường, ưu tiên, không nối tiếp", t_lexicon_apply),
     ("6b: từ điển — kiểm tra dữ liệu sai", t_lexicon_validate),
     ("6b: gợi ý tên riêng — bỏ đầu câu, từ dừng, 2–4 tiếng, xếp theo tần suất, câu ví dụ", t_suggest_terms),
@@ -492,12 +651,15 @@ for name, fn in [
     ("API: xác nhận tách chương, danh sách chương, đọc chương, 404", t_confirm_and_chapters),
     ("API: cài đặt (tắt đọc tiêu đề, nghỉ ngăn cảnh 2s, quy tắc tuỳ chỉnh) áp dụng khi tách lại", t_settings),
     ("API: ▶ nghe thử đầu chương trả WAV", t_sample),
+    ("API: v2.1 GET /api/engines có precision", t_engines_precision_api),
+    ("API: v2.1 mức nghỉ đoạn văn / tiêu đề trong cài đặt truyện, kiểm tra khoảng giá trị", t_pause_settings_api),
+    ("API: v2.1 dung lượng từng truyện, xoá nguồn FLAC khi chưa có gì đã xuất", t_disk_api),
     ("API: 6a+ tác động quy tắc, ngoại lệ lưu và dùng lại khi tách chương", t_rule_impact_api),
     ("API: 6b từ điển toàn cục + của truyện, /lexicon/apply", t_lexicon_api),
     ("API: 6b gợi ý tên riêng (400 khi chưa tách chương, bỏ cụm đã có)", t_suggest_api),
     ("API: 6b mục từ điển nghỉ trước 1s làm audio dài thêm ~1s", t_pause_entry_lengthens),
     ("API: 6b giọng thứ hai cho lời thoại đổi audio, giọng không tồn tại → 404", t_dialogue_voice_api),
-    ("API: 6b Đọc thử 1 phút ở giữa chương (chars/offset)", t_trial_read),
+    ("API: 6c Đọc thử 1 phút qua hàng đợi (job có tiến độ, chars/offset, lỗi đầu vào)", t_trial_read),
     ("API: dọn truyện thử của 6b", t_cleanup_names),
     ("API: nhập nhiều .txt → mỗi file một chương, sắp xếp tự nhiên", t_multi_files),
     ("API: nhập .epub lấy tên truyện / tác giả", t_epub_import),

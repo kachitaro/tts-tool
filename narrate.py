@@ -6,13 +6,15 @@ split_line(line) → [(kind, text)], kind "narr" (giọng kể) hoặc "dlg" (l�
   (b) dòng bắt đầu bằng gạch thoại "–", "—" (có hoặc không có khoảng trắng sau) hoặc "- " (gạch nối + khoảng trắng).
       Trong dòng, gạch ngăn cách " – " theo sau là chữ THƯỜNG là phần dẫn ("– Đi đâu? – hắn hỏi.") → giọng kể; lời thoại
       tiếp sau phần dẫn cũng bắt đầu bằng chữ thường ("– Tôi đi – anh nói – rồi sẽ về.") nên trạng thái đảo qua lại;
-      gạch theo sau là chữ HOA là một câu thoại mới. Phần dẫn viết hoa ("– Đi đâu? – Hắn hỏi.") KHÔNG nhận ra được.
+      gạch theo sau là chữ HOA là một câu thoại mới, trừ khi nó là phần dẫn: ≤ 60 ký tự và có một động từ nói
+      (config/speech_verbs.txt) trong 4 tiếng đầu ("– Đi đâu? – Hắn hỏi." → "Hắn hỏi." do giọng kể).
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -26,6 +28,9 @@ _OPEN, _CLOSE = "“«「『", "”»」』"
 _ENDS = ".!?…,;:"
 GAP_SAME_LINE = 0.15   # giây nghỉ thêm khi đổi giọng trong cùng một dòng
 GAP_NEW_LINE = 0.30    # ... khi đổi giọng sang dòng khác
+# Hiệu chỉnh đo thực tế (scripts/measure_pauses.py, VieNeu): sau khi trừ lặng đệm, khoảng lặng đo được vẫn dài hơn thẻ nghỉ
+# trung bình ~0,03 s ở đường đọc sách nói, nên trừ thêm phần này để xuống đoạn / tiêu đề đo ra đúng giây cấu hình.
+PAUSE_TRIM_S = 0.03
 
 
 def _speakable(t: str) -> bool:
@@ -50,6 +55,36 @@ def _merge(segs: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return out
 
 
+SPEECH_VERBS_PATH = Path(__file__).resolve().parent / "config" / "speech_verbs.txt"
+MAX_TAG_CHARS = 60     # phần dẫn viết hoa dài hơn ngần này không coi là phần dẫn
+TAG_WINDOW = 4         # động từ nói phải nằm trong ngần này tiếng đầu
+_verbs_cache: tuple[float, re.Pattern | None] = (-1.0, None)
+
+
+def _speech_verbs() -> re.Pattern | None:
+    """Biên dịch config/speech_verbs.txt (đọc lại khi file đổi)."""
+    global _verbs_cache
+    try:
+        mtime = SPEECH_VERBS_PATH.stat().st_mtime
+    except OSError:
+        return None
+    if mtime != _verbs_cache[0]:
+        words = [l.split("#")[0].strip().lower() for l in SPEECH_VERBS_PATH.read_text(encoding="utf-8").splitlines()]
+        words = sorted({w for w in words if w}, key=len, reverse=True)
+        rx = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(w) for w in words) + r")(?!\w)") if words else None
+        _verbs_cache = (mtime, rx)
+    return _verbs_cache[1]
+
+
+def _is_tag(part: str) -> bool:
+    """Phần dẫn viết hoa ("Hắn hỏi.", "Nàng thì thầm, giọng run run."): ngắn và có động từ nói trong 4 tiếng đầu."""
+    rx = _speech_verbs()
+    if rx is None or len(part) > MAX_TAG_CHARS:
+        return False
+    head = " ".join(part.split()[:TAG_WINDOW]).lower()
+    return bool(rx.search(head))
+
+
 def _dash_line(rest: str) -> list[tuple[str, str]]:
     segs, kind = [], "dlg"
     for i, part in enumerate(_INNER.split(rest)):
@@ -58,7 +93,10 @@ def _dash_line(rest: str) -> list[tuple[str, str]]:
             continue
         if i:
             first = next((c for c in part if c.isalpha()), "")
-            kind = ("narr" if kind == "dlg" else "dlg") if first.islower() else "dlg"
+            if first.islower():
+                kind = "narr" if kind == "dlg" else "dlg"
+            else:  # chữ hoa: câu thoại mới, trừ khi là phần dẫn ngắn có động từ nói đứng sau một câu thoại
+                kind = "narr" if kind == "dlg" and _is_tag(part) else "dlg"
         segs.append((kind, part))
     return _merge(segs)
 
@@ -127,21 +165,143 @@ def runs(lines: list[list[tuple[str, str]]]) -> list[Run]:
     return out
 
 
-async def render(text: str, narr: tuple, dlg: tuple | None, speed: int, normalize: bool,
-                 book_lex: list[dict] | None = None, global_lex: list[dict] | None = None,
-                 warnings: list | None = None) -> np.ndarray:
-    """Từ điển → (tuỳ chọn) tách lời thoại → sinh từng run bằng giọng tương ứng → ghép (WAV 48 kHz float32).
-    narr / dlg = (engine, voice); dlg=None thì cả văn bản do giọng kể đọc."""
-    warnings = warnings if warnings is not None else []
+PIECE_CHARS = 256   # mỗi lần gọi model đọc tối đa ngần này ký tự (đã chuẩn hoá; = max_chars mà VieNeu tự chia chunk) nên tương tác chỉ chờ một mảnh
+_SENT = re.compile(r"(?<=[.!?…])\s+")
+
+
+def split_pieces(text: str, limit: int = PIECE_CHARS) -> list[str]:
+    """Chia văn bản đã chuẩn hoá thành mảnh ≤ limit ký tự: gộp câu liên tiếp cho tới khi vượt limit; câu dài hơn limit
+    cắt ở dấu phẩy/chấm phẩy/hai chấm gần cuối nhất, không có thì ở khoảng trắng."""
+    out: list[str] = []
+    cur = ""
+    for sent in _SENT.split(text.strip()):
+        while len(sent) > limit:
+            cut = max((sent.rfind(c, 0, limit) for c in ",;:"), default=-1) + 1 or sent.rfind(" ", 0, limit) + 1 or limit
+            if cur:
+                out.append(cur)
+                cur = ""
+            out.append(sent[:cut].strip())
+            sent = sent[cut:].strip()
+        if cur and len(cur) + 1 + len(sent) > limit:
+            out.append(cur)
+            cur = ""
+        cur = f"{cur} {sent}".strip()
+    if cur:
+        out.append(cur)
+    return [p for p in out if p]
+
+
+@dataclass
+class Segment:
+    """Đoạn của hàng đợi (≤ limit ký tự). paras: [[văn bản đoạn văn, giây nghỉ sau]]. cont=True: đoạn này tiếp tục một đoạn văn
+    dài đã bị cắt ở ranh giới câu (mối nối giữa hai đoạn như vậy không chèn khoảng nghỉ đoạn văn)."""
+    paras: list
+    cont: bool = False
+
+
+def split_segments(paras: list[list], limit: int) -> list[Segment]:
+    """Chia chương thành đoạn ≤ limit ký tự: chỉ cắt giữa các đoạn văn (gộp nguyên đoạn văn cho tới khi đầy). Một đoạn văn dài
+    hơn limit mới bị cắt, ở ranh giới câu, mỗi mảnh là một đoạn riêng."""
+    segs: list[Segment] = []
+    cur: list = []
+    size = 0
+
+    def flush() -> None:
+        nonlocal cur, size
+        if cur:
+            segs.append(Segment(cur))
+        cur, size = [], 0
+
+    for text, gap in paras:
+        if len(text) > limit:
+            flush()
+            pieces = split_pieces(text, limit)
+            for j, piece in enumerate(pieces):
+                segs.append(Segment([[piece, gap if j == len(pieces) - 1 else 0]], cont=j > 0))
+            continue
+        if cur and size + len(text) + 1 > limit:
+            flush()
+        cur.append([text, gap])
+        size += len(text) + 1
+    flush()
+    return segs
+
+
+def _tag(sec: float) -> str:
+    return f"[nghỉ {sec:g}s]"
+
+
+def join_paras(paras: list[list]) -> str:
+    """Các đoạn văn → văn bản có thẻ nghỉ giữa chúng (giây nghỉ = 0 thì không chèn thẻ). Không có thẻ sau đoạn cuối."""
+    parts: list[str] = []
+    for i, (text, gap) in enumerate(paras):
+        parts.append(text)
+        if gap and i < len(paras) - 1:
+            parts.append(_tag(gap))
+    return "\n".join(parts)
+
+
+def segment_text(segs: list[Segment], k: int) -> str:
+    """Văn bản đưa cho model của đoạn k. Mối nối với đoạn k+1 là ranh giới đoạn văn thì thẻ nghỉ nằm ở cuối đoạn k;
+    mối nối giữa hai mảnh của một đoạn văn dài (đoạn k+1 là cont) thì không có."""
+    text = join_paras(segs[k].paras)
+    gap = segs[k].paras[-1][1]
+    if gap and k + 1 < len(segs) and not segs[k + 1].cont:
+        text += "\n" + _tag(gap)
+    return text
+
+
+@dataclass
+class Unit:
+    """Một bước dựng audio. kind: "text" (gọi model, có cache) | "silence" (khoảng lặng, seconds)."""
+    kind: str
+    engine: object = None
+    voice: str = ""
+    text: str = ""
+    seconds: float = 0.0
+    chars: int = 0
+    pause: bool = False   # khoảng lặng sinh từ thẻ [nghỉ …] (xuống đoạn, tiêu đề, dấu ngăn cảnh), không phải khoảng nghỉ khi đổi giọng
+
+
+def units(text: str, narr: tuple, dlg: tuple | None, normalize: bool, book_lex: list[dict] | None = None,
+          global_lex: list[dict] | None = None, piece_chars: int = PIECE_CHARS) -> list[Unit]:
+    """Từ điển → (tuỳ chọn) tách lời thoại → từng run → plan (thẻ nghỉ) → mảnh ≤ piece_chars. Raise ValueError (thẻ nghỉ sai)."""
     text = lexicon.apply(text, book_lex, global_lex)
-    pieces = runs(split_text(text)) if dlg else [Run("narr", text, False)]
-    parts: list[np.ndarray] = []
-    for k, r in enumerate(pieces):
+    chunks = runs(split_text(text)) if dlg else [Run("narr", text, False)]
+    out: list[Unit] = []
+    prev_ends_pause = False
+    for ri, r in enumerate(chunks):
         engine, voice = dlg if r.kind == "dlg" else narr
         plan = dialogue.make_plan(engine, r.text, normalize)
         if plan == [("text", "")]:
             continue
-        if parts:
-            parts.append(np.zeros(int((GAP_NEW_LINE if r.new_line else GAP_SAME_LINE) * dialogue.SR), dtype=np.float32))
-        parts.append(await dialogue.render_plan(engine, voice, plan, speed, pitch=0, warnings=warnings))
+        # đổi giọng thì thêm một khoảng nghỉ nhỏ, trừ khi chỗ đó đã có thẻ nghỉ (xuống đoạn): tránh cộng dồn hai khoảng
+        if out and not prev_ends_pause and plan[0][0] != "pause":
+            out.append(Unit("silence", seconds=GAP_NEW_LINE if r.new_line else GAP_SAME_LINE))
+        for idx, (kind, val) in enumerate(plan):
+            if kind == "text":
+                out.extend(Unit("text", engine, voice, p, chars=len(p)) for p in split_pieces(val, piece_chars))
+                continue
+            # thẻ nghỉ: trừ phần lặng đệm sát đoạn chữ kề bên (cùng cách tính với dialogue.render_plan), kể cả chữ nằm ở run kề bên
+            pads = (idx > 0 and plan[idx - 1][0] == "text") + (idx + 1 < len(plan) and plan[idx + 1][0] == "text")
+            # chữ nằm ở run kề bên (đổi giọng) hoặc ở đoạn kề bên: thẻ nghỉ cuối plan luôn được nối với một đoạn chữ khác
+            # (thẻ nghỉ ở cuối đoạn cắt = ranh giới đoạn văn, đoạn kế tiếp bắt đầu bằng chữ)
+            pads += (idx == 0 and bool(out) and out[-1].kind == "text") + (idx == len(plan) - 1)
+            out.append(Unit("silence", seconds=max(0.0, val - pads * dialogue.SEGMENT_PAD_S - PAUSE_TRIM_S), pause=True))
+        prev_ends_pause = plan[-1][0] == "pause"
+    return out
+
+
+async def render_unit(u: Unit, speed: int, warnings: list | None = None, force: bool = False) -> np.ndarray:
+    """force=True: bỏ qua cache (dùng cho "Tạo lại chương": model lấy mẫu ngẫu nhiên nên cho bản đọc khác)."""
+    if u.kind == "silence":
+        return np.zeros(int(u.seconds * dialogue.SR), dtype=np.float32)
+    return await dialogue.synth_segment(u.engine, u.voice, u.text, speed, force=force, warnings=warnings if warnings is not None else [])
+
+
+async def render(text: str, narr: tuple, dlg: tuple | None, speed: int, normalize: bool,
+                 book_lex: list[dict] | None = None, global_lex: list[dict] | None = None,
+                 warnings: list | None = None) -> np.ndarray:
+    """units() → sinh từng bước → ghép (float32 48 kHz). narr / dlg = (engine, voice); dlg=None thì cả văn bản do giọng kể đọc."""
+    parts = [await render_unit(u, speed, warnings) for u in units(text, narr, dlg, normalize, book_lex, global_lex)]
     return np.concatenate(parts) if parts else np.zeros(int(0.4 * dialogue.SR), dtype=np.float32)

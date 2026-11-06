@@ -2,6 +2,7 @@
 # Smoke test các luồng chính. Khởi động server với TTS_DATA_DIR tạm, chạy chuỗi curl, in PASS/FAIL, tự dọn.
 #   scripts/smoke_test.sh            # tất cả
 #   SKIP_EDGE=1 scripts/smoke_test.sh  # bỏ các bước cần mạng (edge-tts)
+#   SKIP_QUEUE=1 scripts/smoke_test.sh # bỏ bước hàng đợi sách nói (~3 phút, tự chạy server riêng ở cổng 8766)
 # Thoát với mã 0 nếu mọi bước PASS, 1 nếu có FAIL. Dùng .venv/bin/python nếu có.
 set -u
 cd "$(dirname "$0")/.."
@@ -83,8 +84,8 @@ assert 1.9 <= gap <= 2.1, f"khoảng lặng {gap:.2f}s ngoài 2s ± 0.1"
 print(f"{gap:.2f}s")
 PYEOF
 }
-retry3() { for _ in 1 2 3; do "$@" && return 0; sleep 1; done; return 1; }   # edge-tts thỉnh thoảng lỗi tạm thời
-check "thẻ nghỉ 2s với vieneu: khoảng lặng 2 ± 0.1 s" pause_gap vieneu "Trúc Ly"
+retry3() { for _ in 1 2 3; do "$@" && return 0; sleep 1; done; return 1; }   # edge-tts thỉnh thoảng lỗi tạm thời; VieNeu lấy mẫu ngẫu nhiên nên đuôi lặng lệch vài chục ms mỗi lần
+check "thẻ nghỉ 2s với vieneu: khoảng lặng 2 ± 0.1 s" retry3 pause_gap vieneu "Trúc Ly"
 [ -z "${SKIP_EDGE:-}" ] && check "thẻ nghỉ 2s với edge: khoảng lặng 2 ± 0.1 s" retry3 pause_gap edge vi-VN-HoaiMyNeural
 check "thẻ nghỉ ngoài 0.1–5 s → 400" expect_status 400 -X POST "$B/api/tts" -F text="a [nghỉ 7s] b" -F engine=vieneu -F voice="Trúc Ly"
 command -v ffmpeg >/dev/null && check "bản có thẻ nghỉ có MP3 trong lịch sử" bash -c "I=\$(curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; print(json.load(sys.stdin)[0]['id'])\"); [ \"\$(curl -s -o /dev/null -w '%{http_code}' '$B/api/history/'\$I'/audio?fmt=mp3')\" = 200 ]"
@@ -190,6 +191,22 @@ grep -E '^(PASS|FAIL)  ' "$WORK/books.out"
 PASS=$((PASS + $(grep -c '^PASS  ' "$WORK/books.out")))
 FAIL=$((FAIL + $(grep -c '^FAIL  ' "$WORK/books.out")))
 grep -qE '^(PASS|FAIL)  ' "$WORK/books.out" || bad "sách nói: smoke_books.py không chạy được" "$(tail -3 "$WORK/books.out" | tr '\n' ' ')"
+
+echo "== hàng đợi sách nói (server riêng: kill -9 / SIGINT giữa chừng, tiếp tục, xuất MP3 + m4b; ~3 phút, SKIP_QUEUE=1 để bỏ)"
+if [ -z "${SKIP_QUEUE:-}" ]; then
+  # dung sai 0.12 = 0.1 yêu cầu + 0.02 cho độ ngẫu nhiên của model (mỗi lần dựng, đuôi lặng của từng câu lệch vài chục ms)
+  if $PY scripts/measure_pauses.py --tol 0.12 >"$WORK/pauses.out" 2>&1; then
+    ok "khoảng lặng xuống đoạn / sau tiêu đề trong audio chương: mọi chỗ trong ±0.12 s, cả mối nối đoạn cắt ($(grep -c ' OK$' "$WORK/pauses.out") chỗ đo, lệch lớn nhất $(grep -E ' OK$' "$WORK/pauses.out" | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[+-][0-9.]+$/) {v=$i<0?-$i:$i; if (v>m) m=v}} END{print m}') s)"
+  else
+    bad "khoảng lặng xuống đoạn / sau tiêu đề trong audio chương" "$(grep -E 'LỆCH|Error|assert' "$WORK/pauses.out" | head -5 | tr '\n' ' ')"
+  fi
+  $PY scripts/smoke_queue.py >"$WORK/queue.out" 2>&1
+  grep -E '^(PASS|FAIL)  ' "$WORK/queue.out"
+  PASS=$((PASS + $(grep -c '^PASS  ' "$WORK/queue.out")))
+  FAIL=$((FAIL + $(grep -c '^FAIL  ' "$WORK/queue.out")))
+  grep -qE '^(PASS|FAIL)  ' "$WORK/queue.out" || bad "hàng đợi: smoke_queue.py không chạy được" "$(tail -3 "$WORK/queue.out" | tr '\n' ' ')"
+  grep -qE '^FAIL  ' "$WORK/queue.out" && sed -n '/^--- cuối server.log/,$p' "$WORK/queue.out" | head -30
+fi
 
 echo "== giới hạn: lịch sử 50 bản, LRU cache (module trực tiếp, data tạm riêng)"
 check "lịch sử giữ đúng 50 bản mới nhất" env TTS_DATA_DIR="$WORK/hist" $PY - <<'PYEOF'

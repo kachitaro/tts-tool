@@ -14,6 +14,7 @@ from __future__ import annotations
 import html.parser
 import io
 import json
+import os
 import math
 import re
 import shutil
@@ -32,6 +33,7 @@ BOOKS = library.DATA / "books"
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FILES = 5000
 MAX_UNZIPPED_BYTES = 300 * 1024 * 1024
+SEGMENT_CHARS = int(os.getenv("BOOK_SEGMENT_CHARS", "800"))  # đoạn = đơn vị cache/tạm dừng của hàng đợi audio
 MIN_CHAPTER_CHARS = 20       # chương ngắn hơn (mục lục, trang bìa) bị bỏ
 MIN_INTRO_CHARS = 100        # phần trước chương đầu tiên chỉ giữ nếu đủ dài ("Mở đầu")
 MAX_TITLE_CHARS = 150        # dòng dài hơn không coi là tiêu đề chương
@@ -73,6 +75,8 @@ RULES: list[tuple[str, str]] = [
 def default_settings() -> dict:
     return {
         "read_title": True,
+        "paragraph_pause_s": PARAGRAPH_PAUSE_S,  # nghỉ giữa hai đoạn văn khi đọc
+        "title_pause_s": TITLE_PAUSE_S,          # nghỉ sau tiêu đề chương
         "split": {"regex": DEFAULT_SPLIT_REGEX, "mode": "regex", "ops": []},
         "clean": {"rules": {name: True for name, _ in RULES}, "custom": [], "separator_pause": 1.5},
         "exceptions": [],  # [{rule, line}]: quy tắc làm sạch không áp dụng cho dòng đó ("Giữ dòng này")
@@ -252,7 +256,8 @@ def list_books() -> list[dict]:
         except (OSError, ValueError):
             continue
         out.append({k: b.get(k) for k in ("id", "title", "author", "status", "created_at")}
-                   | {"chapters": b.get("chapters", {}).get("count", 0), "chars": b.get("chapters", {}).get("chars", 0)})
+                   | {"chapters": b.get("chapters", {}).get("count", 0), "chars": b.get("chapters", {}).get("chars", 0),
+                      "size_bytes": disk_usage(b["id"])["total"]})
     return sorted(out, key=lambda b: b["created_at"] or "", reverse=True)
 
 
@@ -615,6 +620,7 @@ def confirm(book_id: str, built: dict, settings: dict) -> dict:
     with _lock:
         d = _dir(book_id) / "chapters"
         shutil.rmtree(d, ignore_errors=True)
+        shutil.rmtree(audio_dir(book_id), ignore_errors=True)  # chương đánh số lại: audio cũ không còn khớp
         d.mkdir()
         for c in built["chapters"]:
             (d / f"{c['n']:04d}.txt").write_text(c["text"], encoding="utf-8")
@@ -625,6 +631,34 @@ def confirm(book_id: str, built: dict, settings: dict) -> dict:
         book["chapters"] = {"count": len(built["chapters"]), "chars": sum(len(c["text"]) for c in built["chapters"])}
         _write_json(_dir(book_id) / "book.json", book)
     return book
+
+
+def audio_dir(book_id: str) -> Path:
+    return _dir(book_id) / "audio"
+
+
+def chapter_audio(book_id: str, n: int) -> Path:
+    """File audio hoàn chỉnh của chương (FLAC 48 kHz mono, nguồn gốc cho MP3/m4b)."""
+    return audio_dir(book_id) / f"{n:04d}.flac"
+
+
+def parts_dir(book_id: str, n: int) -> Path:
+    """Các đoạn đã dựng của chương đang làm dở (xoá khi chương xong)."""
+    return audio_dir(book_id) / f"{n:04d}.parts"
+
+
+def update_chapter(book_id: str, n: int, **fields) -> dict:
+    """Ghi thêm trường vào chapters/<nnnn>.json (status, segments, audio_seconds…). Giá trị None thì xoá trường."""
+    path = _dir(book_id) / "chapters" / f"{n:04d}.json"
+    with _lock:
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        for k, v in fields.items():
+            if v is None:
+                meta.pop(k, None)
+            else:
+                meta[k] = v
+        _write_json(path, meta)
+    return meta
 
 
 def list_chapters(book_id: str) -> list[dict]:
@@ -648,31 +682,107 @@ def reading_text(book: dict, meta: dict, body: str) -> str:
     return f"{meta['title']}\n\n{body}" if book.get("read_title", True) and meta.get("title") else body
 
 
-def excerpt(text: str, limit: int = 300, offset: float = 0.0) -> str:
-    """Đoạn ~limit ký tự bắt đầu ở dòng gần vị trí `offset` (0..1) của văn bản, cắt ở ranh giới câu
-    (không cắt giữa thẻ [nghỉ …])."""
-    lines = text.split("\n")
+PARAGRAPH_PAUSE_S = 0.6   # mặc định: khoảng lặng giữa hai đoạn văn
+TITLE_PAUSE_S = 1.2       # mặc định: khoảng lặng sau tiêu đề chương
+_PAUSE_TAG = re.compile(r"^\[nghỉ\s*([\d.,]+)\s*s?\]$", re.IGNORECASE)
+
+
+def pauses(book: dict) -> tuple[float, float]:
+    """(paragraph_pause_s, title_pause_s) của truyện; truyện cũ chưa có thì dùng mặc định."""
+    return (float(book.get("paragraph_pause_s", PARAGRAPH_PAUSE_S)), float(book.get("title_pause_s", TITLE_PAUSE_S)))
+
+
+def validate_pause(value, label: str, high: float) -> float:
+    """0 (không nghỉ) hoặc 0.1–high giây."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        raise BookError(f"{label} phải là số giây.")
+    if v != 0 and not 0.1 <= v <= high:
+        raise BookError(f"{label} phải là 0 (không nghỉ) hoặc từ 0.1 đến {high:g} giây.")
+    return round(v, 1)
+
+
+def paragraphs(book: dict, meta: dict, body: str, title: bool = True) -> list[list]:
+    """Chương → [[văn bản đoạn, giây nghỉ sau đoạn]]: tiêu đề (nếu bật đọc tiêu đề) + mỗi dòng của thân chương là một đoạn văn.
+    Dòng `[nghỉ Ns]` (dấu ngăn cảnh) không phải đoạn: nó thay khoảng nghỉ sau đoạn trước đó."""
+    pp, tp = pauses(book)
+    out: list[list] = []
+    if title and book.get("read_title", True) and meta.get("title"):
+        out.append([meta["title"].strip(), tp])
+    for line in body.split("\n"):
+        s = line.strip()
+        if not s:
+            continue
+        m = _PAUSE_TAG.match(s)
+        if m:
+            if out:
+                out[-1][1] = float(m.group(1).replace(",", "."))
+            continue
+        out.append([s, pp])
+    return out
+
+
+def excerpt_paras(paras: list[list], limit: int = 300, offset: float = 0.0) -> list[list]:
+    """Các đoạn văn đầu tiên đủ ~limit ký tự, bắt đầu ở đoạn gần vị trí `offset` (0..1) của chương; đoạn cuối quá dài
+    (> 1,5 × limit) bị cắt ở ranh giới câu."""
     start = 0
-    if offset > 0:
-        goal, acc = offset * len(text), 0
-        start = len(lines) - 1
-        for k, l in enumerate(lines):
+    if offset > 0 and paras:
+        goal, acc = offset * sum(len(t) + 1 for t, _ in paras), 0
+        start = len(paras) - 1
+        for k, (t, _) in enumerate(paras):
             if acc >= goal:
                 start = k
                 break
-            acc += len(l) + 1
-        while start and lines[start].strip() == "":
-            start -= 1
+            acc += len(t) + 1
     out, total = [], 0
-    for para in lines[start:]:
+    for t, g in paras[start:]:
         if total >= limit:
             break
-        if total + len(para) > limit * 1.5 and not _PAUSE_LINE.match(para):
-            cut = max(para.rfind(c, 0, int(limit * 1.5) - total) for c in ".!?…")
-            para = para[: cut + 1] if cut > 0 else para[: limit - total]
-        out.append(para)
-        total += len(para)
-    return "\n".join(out).strip()
+        if total + len(t) > limit * 1.5:
+            room = int(limit * 1.5) - total
+            cut = max(t.rfind(c, 0, room) for c in ".!?…")
+            out.append([t[: cut + 1] if cut > 0 else t[: max(limit - total, 1)], g])
+            break
+        out.append([t, g])
+        total += len(t)
+    return out
+
+
+def disk_usage(book_id: str) -> dict:
+    """Dung lượng (byte) đã dùng của truyện: audio gốc (FLAC + đoạn dở), file xuất (mp3 cache, zip, m4b), nguồn + văn bản chương."""
+    root = _dir(book_id)
+
+    def size(path: Path) -> int:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) if path.is_dir() else 0
+
+    audio, export = size(root / "audio"), size(root / "export")
+    total = size(root)
+    return {"total": total, "audio": audio, "export": export, "other": total - audio - export}
+
+
+def purgeable(book_id: str) -> tuple[int, int]:
+    """(số chương, số byte) FLAC có thể xoá: chương đã dựng xong và đã xuất (MP3 zip hoặc m4b) ít nhất một lần."""
+    n = size = 0
+    for c in list_chapters(book_id):
+        f = chapter_audio(book_id, c["n"])
+        if c.get("status") == "done" and c.get("exported") and f.is_file():
+            n += 1
+            size += f.stat().st_size
+    return n, size
+
+
+def purge_exported(book_id: str) -> tuple[int, int]:
+    """Xoá FLAC của chương đã xuất; chương chuyển sang status "exported" (cần Tạo lại nếu muốn sửa hoặc xuất lại)."""
+    n = freed = 0
+    for c in list_chapters(book_id):
+        f = chapter_audio(book_id, c["n"])
+        if c.get("status") == "done" and c.get("exported") and f.is_file():
+            freed += f.stat().st_size
+            f.unlink()
+            update_chapter(book_id, c["n"], status="exported")
+            n += 1
+    return n, freed
 
 
 def iter_chapters(book_id: str):

@@ -12,7 +12,7 @@ import anyio
 
 import library
 
-from .base import Engine
+from .base import Engine, PriorityLock
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +76,25 @@ def check_emotion_tags() -> list[str]:
     return problems
 
 
+def has_vnni() -> bool:
+    """CPU có tập lệnh VNNI (avx_vnni hoặc avx512_vnni)? int8 chỉ nhanh và không méo tiếng khi có."""
+    try:
+        flags = Path("/proc/cpuinfo").read_text().split("flags", 1)[1].split("\n", 1)[0].split()
+    except (OSError, IndexError):
+        return False
+    return "avx_vnni" in flags or "avx512_vnni" in flags
+
+
+def default_precision() -> str:
+    """Tự chọn: int8 nếu CPU có VNNI, không thì fp32. VIENEU_PRECISION (fp32 | int8) ghi đè."""
+    env = os.getenv("VIENEU_PRECISION", "").strip().lower()
+    if env in ("fp32", "int8"):
+        return env
+    if env:
+        log.warning("VIENEU_PRECISION=%r không hợp lệ (chỉ fp32 hoặc int8): tự chọn theo CPU.", env)
+    return "int8" if has_vnni() else "fp32"
+
+
 def _materialize_hf_symlinks() -> None:
     """onnxruntime từ chối file .data trỏ qua symlink ra ngoài thư mục model (cache HF
     dùng symlink snapshots → blobs). Thay symlink bằng bản sao thật."""
@@ -120,7 +139,7 @@ class VieNeuEngine(Engine):
     def __init__(self) -> None:
         self._tts = None
         self._load_lock = threading.Lock()
-        self._run_lock = threading.Lock()
+        self._run_lock = PriorityLock()  # tương tác vào trước việc nền (hàng đợi sách nói)
         self._lib_cache: dict[str, dict] = {}
         for p in check_emotion_tags():
             log.warning("Danh sách thẻ cảm xúc ghi cứng lệch với vieneu: %s", p)
@@ -153,8 +172,8 @@ class VieNeuEngine(Engine):
                     from vieneu import Vieneu
 
                     kwargs = {}
-                    if os.getenv("VIENEU_PRECISION"):  # ví dụ: int8 cho CPU yếu
-                        kwargs["precision"] = os.environ["VIENEU_PRECISION"]
+                    if self._mode == "v3turbo":  # precision chỉ có ở backend ONNX/CPU của v3turbo
+                        kwargs["precision"] = default_precision()
                     if os.getenv("VIENEU_MODE"):  # ví dụ: v3nano
                         kwargs["mode"] = os.environ["VIENEU_MODE"]
                     try:
@@ -226,8 +245,13 @@ class VieNeuEngine(Engine):
             return f"tạo ở mode {meta.get('mode')}"
         return None
 
+    def precision(self) -> str | None:
+        return default_precision() if self._mode == "v3turbo" else None
+
     def cache_tag(self) -> str:
-        return self._mode
+        # fp32 giữ tag cũ "v3turbo" để cache hiện có còn dùng được; int8 cho audio khác nên tag riêng.
+        precision = self.precision()
+        return self._mode if precision in (None, "fp32") else f"{self._mode}-{precision}"
 
     def _voice_data(self, tts, vid: str) -> dict:
         """Giọng preset hoặc lib: → {"speaker_emb", "codes"}."""
