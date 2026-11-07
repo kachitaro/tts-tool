@@ -640,7 +640,7 @@ def html_variant(n: int, title: str | None = None, unknown: str = "") -> bytes:
 
 def html_book(files, **settings):
     """Nhập (name, bytes) vào truyện tạm (module trực tiếp) → (book, built)."""
-    b = books.import_files(files, "H" + os.urandom(3).hex(), "", {"engine": "vieneu", "voice": "x"})
+    b = books.import_files(files, "", "", {"engine": "vieneu", "voice": "x"})
     st = books.overrides(b, {})
     for k, v in settings.items():
         st["clean"]["rules"][k] = v
@@ -649,20 +649,27 @@ def html_book(files, **settings):
 
 def t_html_fixture_matches_example() -> None:
     exp = EXPECTED.read_text(encoding="utf-8")
-    norm = lambda t: [l for l in t.split("\n") if l.strip()]  # noqa: E731
     b, built = html_book([("chapter_sample.html", FIXTURE.read_bytes())], quotes=False)
     assert b["split"]["mode"] == "per_file" and len(built["chapters"]) == 1
     c = built["chapters"][0]
     got = c["title"] + "\n\n" + c["text"].replace("[nghỉ 1.5s]", "***")      # ngăn cảnh = quy tắc [nghỉ] có sẵn
     assert c["title"] == "Chương 1: Bức tranh tức giận (1)", c["title"]
-    assert norm(got) == norm(exp), "khác vi-du-chuong-1.txt (không tính dòng trống)"
+    assert got + "\n" == exp, "khác vi-du-chuong-1.txt (so khớp chặt, chỉ tắt quy tắc ngoặc kép)"
+    assert b["title"] == "Cảnh Sát Hình Sự La Phi", b["title"]                                  # tên truyện từ <title> file đầu tiên
     assert "*" not in c["text"] and "ham muốn" in c["text"].lower() or "*" not in c["text"], c["text"][:200]
     assert built["stats"]["unmask"] == 2 and built["stats"]["join_numbers"] == 1, built["stats"]
     assert built["warnings"] == [] and built["masked_unknown"] == [], (built["warnings"], built["masked_unknown"])
-    # tắt "bỏ dòng trống thừa": giữ nguyên các dòng trống như bản mẫu
-    _, built2 = html_book([("chapter_sample.html", FIXTURE.read_bytes())], quotes=False, blank_lines=False)
-    c2 = built2["chapters"][0]
-    assert (c2["title"] + "\n\n" + c2["text"].replace("[nghỉ 1.5s]", "***")).strip() == exp.strip()
+    # cũng khớp khi chuẩn hoá ngoặc kép cả hai bên (quy tắc ngoặc kép bật)
+    _, built3 = html_book([("chapter_sample.html", FIXTURE.read_bytes())])
+    c3 = built3["chapters"][0]
+    q = lambda t: t.translate(books._QUOTES)  # noqa: E731
+    assert q(c3["title"] + "\n\n" + c3["text"].replace("[nghỉ 1.5s]", "***") + "\n") == q(exp)
+    # không có " - Chương" trong <title>: tên file đầu tiên; tên người dùng nhập luôn thắng
+    page = "<html><head><title>Không có số</title></head><body><p>" + "Nội dung đủ dài. " * 20 + "</p></body></html>"
+    b4 = books.import_files([("truyen_x.html", page.encode())], "", "", {"engine": "vieneu", "voice": "x"})
+    assert b4["title"] == "truyen_x", b4["title"]
+    b5 = books.import_files([("a.html", FIXTURE.read_bytes())], "Tên tự đặt", "", {"engine": "vieneu", "voice": "x"})
+    assert b5["title"] == "Tên tự đặt"
 
 
 def t_html_outside_frame_kept() -> None:

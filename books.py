@@ -237,6 +237,15 @@ def read_html(name: str, data: bytes, selector: str = html_import.DEFAULT_SELECT
                                               "found": found, "chars": len(body.strip())})
 
 
+def html_book_title(first: tuple[str, bytes]) -> str:
+    """Tên truyện từ <title> của file html đầu tiên: phần trước " - Chương N" ("Cảnh Sát Hình Sự La Phi - Chương 1: …"). "" nếu không có."""
+    if SOURCE_EXTS.get(Path(first[0]).suffix.lower()) != "html":
+        return ""
+    raw = html_import.extract(decode_bytes(first[1])[0])[0]
+    m = re.match(r"^(.+?)\s+[-–]\s+Chương\s*\d", raw, re.I)
+    return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
+
+
 def validate_selector(selector: str) -> str:
     try:
         html_import.parse_selector(selector)
@@ -373,7 +382,7 @@ def import_files(files: list[tuple[str, bytes]], title: str, author: str, voice:
             text, enc = decode_bytes(data)
             info = {"encoding": enc, "chars": len(text)}
         sources.append({"name": name, "file": f"{i:04d}-{_safe_name(name)}", "kind": kind, "bytes": len(data), **info})
-    title = title.strip() or epub_meta.get("title") or Path(files[0][0]).stem
+    title = title.strip() or epub_meta.get("title") or html_book_title(files[0]) or Path(files[0][0]).stem
     author = author.strip() or epub_meta.get("author", "")
     with _lock:
         base = library.slugify(title)
