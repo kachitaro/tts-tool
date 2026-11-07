@@ -17,15 +17,19 @@ Không có tai người ở đây: bảng chỉ cho biết cái gì đo được
 from __future__ import annotations
 
 import asyncio
+import atexit
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 
-os.environ.setdefault("TTS_DATA_DIR", tempfile.mkdtemp())
+if "TTS_DATA_DIR" not in os.environ:
+    os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp(prefix="lexicon_probe_")
+    atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)   # dọn khi thoát
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 

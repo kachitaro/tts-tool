@@ -9,7 +9,7 @@ import { VoicePicker, keyOf, displayName, metaLine, previewVoice } from "../voic
 import { getSettings, effectiveDefault } from "../defaults.js";
 import { play } from "../player.js";
 import { askNotifyPermission } from "../overview.js";
-import { getBook, patchBook, previewBook, confirmBook, deleteBook, runQueue, trial, trialFlag, queueOf } from "../bookapi.js";
+import { getBook, patchBook, previewBook, confirmBook, deleteBook, runQueue, runTrial, trial, queueOf } from "../bookapi.js";
 import { inferTitlePattern } from "../titlepattern.js";
 import { Pager, PAGE_SIZE } from "../pager.js";
 
@@ -398,8 +398,7 @@ export function mountWizardVoice(root, { id }) {
       await saveSettings();
       const five = st.trial5 && book.chapters.count > 5;
       askNotifyPermission();
-      await runQueue(id, five ? { limit: 5 } : {});
-      if (five) trialFlag.set(id); else trialFlag.clear(id);
+      await (five ? runTrial(id, 5) : runQueue(id, {}));
       prefs.set("voice-last", st.voice);
       toast(five ? "Bắt đầu tạo 5 chương đầu. Xong tool sẽ dừng để bạn nghe thử." : "Bắt đầu tạo sách nói. Bạn có thể đóng trang này, tool vẫn chạy.");
       go(`/sach/${id}`);

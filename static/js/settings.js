@@ -42,8 +42,7 @@ export async function openSettings() {
         h("div", { class: "adv-body stack", style: "--gap:10px" },
           ...Object.values(eng).filter((e) => e.available).map((e) => h("div", { class: "muted" }, `${e.name}${e.precision ? " · độ chính xác " + e.precision : ""}`)),
           h("div", { class: "muted" }, "Muốn đổi độ chính xác của giọng trên máy: đặt biến môi trường VIENEU_PRECISION (fp32 hoặc int8) khi mở tool. Mặc định tool tự chọn theo máy."),
-          h("div", { class: "muted" }, "Dữ liệu (giọng, lịch sử, truyện) nằm trong thư mục data/ cạnh tool."),
-          h("a", { href: "/legacy" }, "Mở giao diện cũ (đủ mọi tuỳ chọn)"))),
+          h("div", { class: "muted" }, "Dữ liệu (giọng, lịch sử, truyện) nằm trong thư mục data/ cạnh tool."))),
       h("div", { class: "row end" }, h("button", { class: "btn primary", onclick: () => m.close() }, "Xong"))),
   ]);
 }

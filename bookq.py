@@ -110,7 +110,7 @@ def signature(book: dict, narr: tuple, dlg: tuple | None, glex: list[dict]) -> s
 class BookQueue:
     def __init__(self) -> None:
         self.s: dict = {"paused": False, "items": [], "inhibit_sleep": True, "rate": [],
-                        "finish": {"seq": 0, "at": 0, "done": 0, "errors": 0, "book": "", "title": ""}}
+                        "finish": {"seq": 0, "at": 0, "done": 0, "errors": 0, "book": "", "title": "", "trial": False}}
         self.running: dict | None = None
         self.trials: dict[str, Trial] = {}
         self.resolve = None          # callable(book) -> (narr, dlg); server cung cấp
@@ -342,10 +342,26 @@ class BookQueue:
         if drained and (self._session["done"] or self._session["errors"]):
             f = self.s["finish"]
             f.update(seq=f["seq"] + 1, at=time.time(), done=self._session["done"], errors=self._session["errors"],
-                     book=self._session["book"], title=self._session["title"])
+                     book=self._session["book"], title=self._session["title"], trial=self._mark_trial_done(self._session["book"]))
             self.save()
             self._notify(f)
             self._session = {"done": 0, "errors": 0, "book": "", "title": ""}
+
+    @staticmethod
+    def _mark_trial_done(book_id: str) -> bool:
+        """"Tạo thử N chương" xong khi đủ N chương đã có audio: ghi done_at vào book.json (banner "Tạo tiếp" đọc từ đó)."""
+        try:
+            b = books.get(book_id)
+            t = b.get("trial")
+            if not t or t.get("done_at"):
+                return False
+            if sum(c.get("status") in ("done", "exported") for c in books.list_chapters(book_id)) < t["limit"]:
+                return False
+            t["done_at"] = time.time()
+            books.save(b)
+            return True
+        except (books.NotFound, OSError, KeyError):
+            return False
 
     def _notify(self, f: dict) -> None:
         import shutil as _sh

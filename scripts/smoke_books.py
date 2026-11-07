@@ -6,9 +6,11 @@ Phần module (dò encoding, làm sạch, EPUB) chạy trực tiếp trên books
 
 from __future__ import annotations
 
+import atexit
 import io
 import os
 import re
+import shutil
 import sys
 import tempfile
 import time
@@ -16,7 +18,8 @@ import unicodedata
 import zipfile
 from pathlib import Path
 
-os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp()  # chỉ cho phần module; server có data riêng
+os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp(prefix="smoke_books_")  # chỉ cho phần module; server có data riêng
+atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)   # dọn khi thoát
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import httpx  # noqa: E402

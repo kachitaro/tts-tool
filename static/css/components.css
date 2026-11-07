@@ -254,3 +254,32 @@ body.shot { padding-bottom: 0; }
   .chrow .name { flex-basis: 100%; }
   .exlist { margin-left: 0; }
 }
+
+/* điện thoại: hàng tab chia đều, nhãn dài xuống dòng chứ không bị cắt hay phải cuộn ngang */
+@media (max-width: 520px) {
+  .tabs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 0; overflow: visible; }
+  .tabs button { padding: 10px 6px; white-space: normal; text-align: center; line-height: 1.25; font-size: var(--fs-sm); }
+  .seg { display: flex; width: 100%; }
+  .seg button { flex: 1 1 0; padding: 10px 6px; white-space: normal; line-height: 1.25; }
+}
+
+/* ───── Giọng của tôi: lưới thẻ, thêm giọng, pha giọng ───── */
+.vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.vgrid .vgroup { grid-column: 1 / -1; }
+.vcard { display: flex; flex-direction: column; gap: 4px; border: 2px solid var(--line); border-radius: 14px; padding: 14px; background: var(--surface); min-width: 0; }
+.vcard.dim { opacity: .6; }
+.vcard > b { font-size: 18px; }
+.vcard .vact { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.vcard .vact .menu { margin-left: auto; }
+.vcard .menu > .pop { right: 0; left: auto; min-width: 200px; }
+.vempty { grid-column: 1 / -1; border: 2px dashed var(--line); border-radius: 14px; padding: 16px; color: var(--muted); }
+.drop.small { padding: 24px 16px; border-radius: 14px; }
+.drop.small .big { font-size: 18px; word-break: break-all; }
+.drop.has { border-style: solid; border-color: var(--accent); }
+.mixcard { min-width: 0; }
+.mixends { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 6px; }
+#mixPos { width: 100%; accent-color: var(--accent); height: 32px; }
+.mixlbl { text-align: center; color: var(--muted); font-size: var(--fs-sm); margin-top: 4px; overflow-wrap: anywhere; }
+.hint.err { color: var(--err); }
+a.btn { display: inline-block; text-decoration: none; color: var(--text); text-align: center; }
+a.btn.ghost { color: var(--accent); }

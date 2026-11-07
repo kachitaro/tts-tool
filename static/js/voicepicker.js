@@ -4,6 +4,7 @@ import { api, sendForm } from "./api.js";
 import { resetVoices } from "./store.js";
 import { play } from "./player.js";
 import { showError } from "./ui.js";
+import { menuButton } from "./menu.js";
 
 export const keyOf = (v) => `${v.engine}|${v.id}`;
 export const splitKey = (k) => { const i = k.indexOf("|"); return { engine: k.slice(0, i), voice: k.slice(i + 1) }; };
@@ -51,24 +52,40 @@ export async function setFavorite(v, on) {
  *  onPick  : bấm vào dòng giọng → chọn (bỏ qua nếu không truyền)
  *  actions : (v) => Node[] nút thêm cuối dòng (ví dụ "Dùng để đọc")
  *  only    : (v) => bool lọc cứng trước (ví dụ chỉ giọng của một loại)
+ *  menu    : (v) => [{label, onclick, danger}] — bật chế độ QUẢN LÝ: lưới thẻ chia nhóm Yêu thích / Giọng của tôi / Giọng có sẵn,
+ *            mỗi thẻ có ▶ ★ và menu ⋯. emptyMine: Node hiện khi nhóm "Giọng của tôi" trống.
  */
-export function VoicePicker({ voices, engines, value, onPick, actions, only, tall = false }) {
+export function VoicePicker({ voices, engines, value, onPick, actions, only, tall = false, menu, emptyMine }) {
+  const manage = !!menu;
   const st = { q: "", fav: false, gender: "", region: "" };
-  const list = h("div", { class: "vlist" + (tall ? " free" : "") });
+  const list = h("div", { class: manage ? "vgrid" : "vlist" + (tall ? " free" : "") });
   const base = voices.filter((v) => (!only || only(v)) && (!v.lang || v.lang.startsWith("vi")));
 
   const chip = (label, on, fn) => h("button", { type: "button", class: "chip" + (on ? " on" : ""), onclick: () => { fn(); paintChips(); paint(); } }, label);
   const chips = h("div", { class: "chiprow" });
   function paintChips() {
     chips.replaceChildren(
-      chip("★ Yêu thích", st.fav, () => { st.fav = !st.fav; }),
-      h("span", { class: "sep" }),
+      !manage && chip("★ Yêu thích", st.fav, () => { st.fav = !st.fav; }),
+      !manage && h("span", { class: "sep" }),
       chip("Giọng nam", st.gender === "nam", () => { st.gender = st.gender === "nam" ? "" : "nam"; }),
       chip("Giọng nữ", st.gender === "nữ", () => { st.gender = st.gender === "nữ" ? "" : "nữ"; }),
       h("span", { class: "sep" }),
       ...["bac", "trung", "nam"].map((r) => chip(REGION[r][0].toUpperCase() + REGION[r].slice(1), st.region === r, () => { st.region = st.region === r ? "" : r; })),
     );
   }
+
+  const card = (v) => {
+    const usable = v.usable !== false;
+    const fav = h("button", { type: "button", class: "fav" + (v.favorite ? " on" : ""), "aria-label": (v.favorite ? "Bỏ đánh dấu sao " : "Đánh dấu sao ") + displayName(v), title: v.favorite ? "Bỏ yêu thích" : "Yêu thích",
+      onclick: async () => { try { await setFavorite(v, !v.favorite); paint(); } catch (er) { showError(er); } } }, v.favorite ? "★" : "☆");
+    return h("div", { class: "vcard" + (usable ? "" : " dim") },
+      h("b", { class: "ellip", title: displayName(v) }, (v.source === "mix" ? "🎚️ " : v.source === "clone" ? "🎙️ " : "") + displayName(v)),
+      h("div", { class: "muted" }, metaLine(v, engines)),
+      !usable && h("div", { class: "muted" }, "⚠ " + (v.unusable_reason || "Chưa dùng được")),
+      h("div", { class: "vact" },
+        h("button", { type: "button", class: "play", "aria-label": "Nghe thử " + displayName(v), title: "Nghe thử", disabled: !usable, onclick: () => previewVoice(v) }, "▶"),
+        fav, menuButton("⋯", menu(v), { aria: "Thêm lựa chọn cho " + displayName(v) })));
+  };
 
   const row = (v) => {
     const usable = v.usable !== false;
@@ -93,6 +110,14 @@ export function VoicePicker({ voices, engines, value, onPick, actions, only, tal
     const q = st.q.trim().toLowerCase();
     const shown = base.filter((v) => (!q || (displayName(v) + " " + (v.tags || []).join(" ") + " " + (v.description || "")).toLowerCase().includes(q))
       && (!st.fav || v.favorite) && (!st.gender || v.gender === st.gender) && (!st.region || v.region === st.region));
+    if (manage) {
+      const groups = [["Yêu thích", shown.filter((v) => v.favorite)], ["Giọng của tôi", shown.filter((v) => !v.favorite && isMine(v))], ["Giọng có sẵn", shown.filter((v) => !v.favorite && !isMine(v))]];
+      const noFilter = !q && !st.gender && !st.region;
+      list.replaceChildren(...groups.flatMap(([name, g]) => g.length ? [h("div", { class: "vgroup" }, name + ` · ${g.length}`), ...g.map(card)]
+        : name === "Giọng của tôi" && noFilter && emptyMine ? [h("div", { class: "vgroup" }, name), h("div", { class: "vempty" }, emptyMine)] : []));
+      if (!shown.length) list.append(h("p", { class: "muted" }, "Không có giọng nào khớp. Thử bỏ bớt bộ lọc."));
+      return;
+    }
     const groups = [["Của tôi", shown.filter(isMine)], ["Có sẵn", shown.filter((v) => !isMine(v))]];
     const byFav = (a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0);
     list.replaceChildren(...groups.filter(([, g]) => g.length).flatMap(([name, g]) => [h("div", { class: "vgroup" }, name + ` · ${g.length}`), ...g.sort(byFav).map(row)]));

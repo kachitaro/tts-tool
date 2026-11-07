@@ -24,9 +24,7 @@ export async function trial(id, n, { chars = 900, offset = 0 } = {}, onProgress 
   }
 }
 
-// Cờ "đang tạo thử 5 chương": tool dừng sau 5 chương, hiện banner "Tạo tiếp". Lưu ở trình duyệt (không có trong API).
-export const trialFlag = {
-  set: (id) => localStorage.setItem("gv:trial5:" + id, "1"),
-  has: (id) => localStorage.getItem("gv:trial5:" + id) === "1",
-  clear: (id) => localStorage.removeItem("gv:trial5:" + id),
-};
+/** "Tạo thử N chương": server tự dừng sau N chương và ghi book.trial = {limit, done_at}. */
+export const runTrial = (id, limit = 5) => runQueue(id, { limit, trial: true });
+/** "Để sau" trên banner tạo thử. */
+export const dismissTrial = (id) => patchBook(id, { dismiss_trial: true });

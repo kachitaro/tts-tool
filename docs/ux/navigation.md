@@ -41,7 +41,7 @@ Màn chính  (/)
 
 /giong  Giọng của tôi
 ├─ [🎙️ Thêm giọng từ file ghi âm]  → hộp thoại (kéo file / ghi âm / đồng ý chủ giọng; giới tính-vùng trong "Thêm thông tin")
-├─ [🎚️ Pha giọng mới]             → hộp thoại (2 giọng + thanh pha + nghe thử + đặt tên)
+├─ [🎚️ Pha giọng mới]             → trang /giong/pha (2 thẻ giọng + thanh pha + tự nghe khi thả tay + [Lưu giọng này]; làm trang chứ không phải hộp thoại vì cần chọn giọng bằng hộp thoại con)
 └─ lọc (tìm, Tất cả / Yêu thích / Của tôi / Nam / Nữ) + thẻ giọng: ▶ · ♥ · [Dùng để đọc] · ⋯ (Sửa, Xoá)
 ```
 
@@ -105,7 +105,7 @@ Quy tắc điều hướng: tối đa **2 cấp** (Màn chính → một mục �
 | ✎ Sửa, 🗑 Xoá | menu ⋯ trên giọng của tôi |
 | + Thêm giọng (file / kéo thả / ghi âm / đồng ý chủ giọng / giới tính / vùng / thẻ / mô tả) | Nút "Thêm giọng từ file ghi âm" → hộp thoại 3 trường chính; giới tính, vùng, thẻ, mô tả trong "Thêm thông tin" |
 | Chọn Engine khi thêm giọng | tự chọn theo giọng trên máy (chỉ giọng trên máy hỗ trợ nhân bản); hiện trong "Thêm thông tin" nếu sau này có nhiều hơn một |
-| Pha giọng: A, B, tìm, ▶, thanh pha, câu thử, tự nghe, Lưu | Nút "Pha giọng mới" → hộp thoại (2 danh sách, thanh "Giống A … Giống B", nghe thử, tự nghe khi thả, đặt tên) |
+| Pha giọng: A, B, tìm, ▶, thanh pha, câu thử, tự nghe, Lưu | Nút "Pha giọng mới" → trang `/giong/pha` (2 thẻ giọng, mỗi thẻ "Đổi giọng" mở bộ chọn, thanh "Giống A … Giống B", nghe thử, tự nghe khi thả, đặt tên) |
 | Lưu giọng pha: tên, giới tính, vùng, thẻ, mô tả | ô tên + "Thêm thông tin" |
 
 ### Sách nói (tab cũ 5)

@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp(prefix="measure_pauses_")
+atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)   # dọn khi thoát
 os.environ.setdefault("BOOK_SEGMENT_CHARS", "220")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

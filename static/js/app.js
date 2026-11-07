@@ -11,6 +11,7 @@ import { mountWizardStart, mountWizardCheck, mountWizardVoice } from "./views/wi
 import { mountBook } from "./views/book.js";
 import { mountRead } from "./views/read.js";
 import { mountVoices } from "./views/voices.js";
+import { mountMix } from "./views/mix.js";
 
 route("/", mountHome);
 route("/sach", mountBooks);
@@ -20,6 +21,7 @@ route("/sach/:id/kiem-tra", mountWizardCheck);
 route("/sach/:id/giong", mountWizardVoice);
 route("/doc", mountRead);
 route("/giong", mountVoices);
+route("/giong/pha", mountMix);
 
 /** Chỉ báo "Đang tạo: Truyện X, chương 12/171, còn ~9 giờ" — bấm vào để tới truyện. */
 function paintRunning() {

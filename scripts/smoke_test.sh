@@ -11,6 +11,7 @@ PORT=${PORT:-8765}
 B="http://127.0.0.1:$PORT"
 DATA=$(mktemp -d)
 WORK=$(mktemp -d)
+touch "$WORK/stamp"   # mốc thời gian để kiểm tra không rác tạm ở cuối
 SERVER_PID=""
 PASS=0; FAIL=0
 
@@ -205,6 +206,8 @@ check "GET /legacy trả giao diện cũ (liên kết sâu #book, #lib-add)" bas
 if command -v node >/dev/null; then
   check "mọi file static/js/**/*.js đúng cú pháp ES module" bash -c "for f in static/js/*.js static/js/views/*.js; do node --check --input-type=module < \$f || exit 1; done"
   check "errors.js: lỗi kỹ thuật → lời thường + cách khắc phục (node tests/js/errors.test.mjs)" node tests/js/errors.test.mjs
+  check "mọi liên kết/điều hướng của giao diện mới khớp route, không còn liên kết tới /legacy (node tests/js/links.test.mjs)" node tests/js/links.test.mjs
+  check "recorder.js: ngưỡng thời lượng mẫu giọng 3–10–30 giây (node tests/js/recorder.test.mjs)" node tests/js/recorder.test.mjs
   check "titlepattern.js: một dòng tiêu đề mẫu → mẫu tìm chương (node tests/js/titlepattern.test.mjs)" node tests/js/titlepattern.test.mjs
 fi
 
@@ -260,6 +263,8 @@ dialogue.log.addHandler(H())
 dialogue.prune_cache(limit=500)                       # k0 (job sống) vẫn nằm đó và đã vượt 500 B → phải cảnh báo
 assert any("vượt TTS_CACHE_MB" in m for m in records), records
 PYEOF
+
+check "các script thử (smoke_books, smoke_queue…) không để lại thư mục tạm trong /tmp" bash -c '! find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$1" \( -name "smoke_queue_*" -o -name "smoke_books_*" -o -name "measure_pauses_*" -o -name "perf_books_*" -o -name "lexicon_probe_*" -o -name "bench_vieneu_*" \) | grep -q .' _ "$WORK/stamp"
 
 echo
 echo "Kết quả: $PASS PASS, $FAIL FAIL"

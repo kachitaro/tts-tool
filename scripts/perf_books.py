@@ -8,14 +8,18 @@ ngoặc kép cong, dấu ba chấm, và dòng quảng cáo lặp ở mọi chư�
 from __future__ import annotations
 
 import argparse
+import atexit
 import os
 import random
+import shutil
 import sys
 import tempfile
 import time
 from pathlib import Path
 
-os.environ.setdefault("TTS_DATA_DIR", tempfile.mkdtemp())
+if "TTS_DATA_DIR" not in os.environ:
+    os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp(prefix="perf_books_")
+    atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)   # dọn khi thoát
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import books  # noqa: E402

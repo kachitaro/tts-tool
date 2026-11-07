@@ -14,9 +14,11 @@ Chạy: .venv/bin/python scripts/bench_vieneu.py [--book ID] [--precisions fp32,
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import subprocess
+import shutil
 import sys
 import tempfile
 import time
@@ -133,6 +135,7 @@ def main() -> None:
     import numpy as np
 
     tmp = Path(tempfile.mkdtemp(prefix="bench_vieneu_"))
+    atexit.register(shutil.rmtree, tmp, ignore_errors=True)   # dọn thư mục tạm khi thoát (kể cả lỗi)
     ref = tmp / "ref.wav"
     total_chars = sum(len(p) for p in PASSAGES)
     print(f"CPU: {cpu_name()} ({os.cpu_count()} luồng) · VNNI: {'có' if has_vnni() else 'không'} → precision mặc định của server: "

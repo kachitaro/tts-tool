@@ -7,7 +7,7 @@ import { play } from "../player.js";
 import { menuButton } from "../menu.js";
 import { Pager, PAGE_SIZE } from "../pager.js";
 import { askNotifyPermission } from "../overview.js";
-import { getBook, chaptersOf, queueOf, runQueue, trial, trialFlag, deleteBook } from "../bookapi.js";
+import { getBook, chaptersOf, queueOf, runQueue, runTrial, dismissTrial, trial, deleteBook } from "../bookapi.js";
 import { mountNamesTab } from "./book-names.js";
 import { mountSettingsTab } from "./book-settings.js";
 
@@ -48,13 +48,13 @@ export function mountBook(root, { id }) {
     const frac = total ? (done + (r && r.seg_total ? r.seg_done / r.seg_total : 0)) / total : 0;
     const active = q.state === "running" || q.state === "pausing";
     const stale = chs.filter((c) => c.stale).length;
-    const flag = trialFlag.has(id);
+    const tr = q.trial;   // do server ghi vào book.json: {limit, done_at}
     const idle = q.state === "idle" || (q.state === "paused" && !r);
     // banner "đã xong 5 chương thử" (tool đã dừng, chờ bạn nghe thử)
     banners.replaceChildren(...[
-      flag && q.state === "idle" && q.remaining > 0 && done > 0 ? h("div", { class: "notice ok", style: "margin:0" }, h("b", {}, `Đã xong ${done} chương thử. `), "Nghe thử rồi bấm Tạo tiếp.",
-        h("div", { class: "row", style: "margin-top:8px" }, h("button", { class: "btn primary small", onclick: async () => { trialFlag.clear(id); await start({}); } }, "Tạo tiếp"),
-          h("button", { class: "btn small", onclick: () => { trialFlag.clear(id); paintTop(); } }, "Để sau"))) : null,
+      tr && tr.done_at && q.state === "idle" && q.remaining > 0 ? h("div", { class: "notice ok", style: "margin:0" }, h("b", {}, `Đã xong ${done} chương thử. `), "Nghe thử rồi bấm Tạo tiếp.",
+        h("div", { class: "row", style: "margin-top:8px" }, h("button", { class: "btn primary small", onclick: async () => { await start({}); } }, "Tạo tiếp"),
+          h("button", { class: "btn small", onclick: async () => { try { await dismissTrial(id); await refresh(true); } catch (e) { showError(e); } } }, "Để sau"))) : null,
       stale ? h("div", { class: "notice warn", style: "margin:0" }, h("b", {}, `${fmtN(stale)} chương cần tạo lại`), " vì bạn đã đổi cài đặt (giọng, tốc độ, cách đọc tên…) sau khi tạo. ",
         h("button", { class: "btn small", style: "margin-left:6px", onclick: () => start({ stale_only: true, regenerate: true }) }, "Tạo lại")) : null,
       q.note ? h("div", { class: "notice warn", style: "margin:0" }, q.note) : null].filter(Boolean));
@@ -71,7 +71,7 @@ export function mountBook(root, { id }) {
       h("div", { class: "row" }, primary,
         !allDone && done > 0 ? downloadButton(false) : null,
         active || q.paused || q.queued_book ? h("button", { class: "btn danger", onclick: cancelAll }, "Dừng hẳn") : null,
-        !active && !q.paused && done === 0 && total > 5 ? h("button", { class: "btn", onclick: () => { trialFlag.set(id); start({ limit: 5 }); } }, "Tạo thử 5 chương") : null)));
+        !active && !q.paused && done === 0 && total > 5 ? h("button", { class: "btn", onclick: () => { askNotifyPermission(); runTrial(id, 5).then(() => refresh(true)).catch(showError); } }, "Tạo thử 5 chương") : null)));
   }
 
   let voiceName = "";
@@ -87,7 +87,7 @@ export function mountBook(root, { id }) {
   }
   async function cancelAll() {
     if (!(await confirmBox({ title: "Dừng hẳn việc đang tạo?", body: "Các chương đã xong vẫn được giữ. Chương đang tạo dở dừng lại sau đoạn hiện tại và có thể tạo tiếp sau.", ok: "Dừng hẳn", danger: true }))) return;
-    try { await sendJSON("/api/queue/cancel", { book: id }); trialFlag.clear(id); await refresh(true); } catch (e) { showError(e); }
+    try { await sendJSON("/api/queue/cancel", { book: id }); await refresh(true); } catch (e) { showError(e); }
   }
 
   // ───── Tải về ─────
@@ -228,7 +228,7 @@ export function mountBook(root, { id }) {
       const changed = force || s !== sig;
       if (changed) { sig = s; chs = await chaptersOf(id); }
       if (!alive) return;
-      const t = JSON.stringify([s, q.estimate_seconds != null && Math.round(q.estimate_seconds / 60), q.note, trialFlag.has(id)]);
+      const t = JSON.stringify([s, q.estimate_seconds != null && Math.round(q.estimate_seconds / 60), q.note, q.trial && q.trial.done_at]);
       if (changed || t !== topSig) { topSig = t; paintTop(); }
       if (changed) paintTabs();
     } catch { /* thử lại lần sau */ }

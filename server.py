@@ -713,6 +713,7 @@ class BookPatch(BaseModel):
     exceptions: list[dict] | None = None
     lexicon: list[dict] | None = None
     dialogue_voice: dict | None = None
+    dismiss_trial: bool | None = None   # "Để sau" trên banner tạo thử: bỏ book["trial"]
 
 
 async def build_book(book_id: str, book: dict, body: SplitIn) -> tuple[dict, dict]:
@@ -809,6 +810,8 @@ def books_patch(book_id: str, body: BookPatch):
             book["exceptions"] = books.validate_exceptions(body.exceptions)
         if body.lexicon is not None:
             book["lexicon"] = lexicon.validate(body.lexicon)
+        if body.dismiss_trial:
+            book.pop("trial", None)
         if body.dialogue_voice is not None:
             dv = body.dialogue_voice
             e = get_engine(str(dv.get("engine", "")))
@@ -1056,6 +1059,7 @@ def queue_state(book_id: str | None = None) -> dict:
     book = book_or_404(book_id)
     out = bookq.Q.book_status(book_id, book["voice"]["engine"])
     out["exports"] = exporter.list_files(book_id)
+    out["trial"] = book.get("trial")   # {limit, done_at} khi truyện đang ở giai đoạn "tạo thử N chương"
     n, size = books.purgeable(book_id)
     out["purgeable"] = {"chapters": n, "bytes": size}
     try:
@@ -1075,6 +1079,7 @@ class RunIn(BaseModel):
     limit: int | None = None            # chỉ lấy N chương đầu trong danh sách trên ("Chạy thử 5 chương đầu")
     regenerate: bool = False            # xoá audio cũ và dựng lại bằng model (bỏ qua cache)
     stale_only: bool = False            # chỉ chương đã dựng bằng cấu hình cũ (kèm regenerate)
+    trial: bool = False                 # "tạo thử N chương" (N = limit): ghi book["trial"], xong thì banner "Tạo tiếp"
 
 
 @app.post("/api/books/{book_id}/queue/run")
@@ -1096,10 +1101,17 @@ def queue_run(book_id: str, body: RunIn | None = None):
         ns = ns[: max(0, body.limit)]
     if not ns:
         raise HTTPException(400, "Không có chương nào cần tạo.")
+    if body.trial and body.limit is None:
+        raise HTTPException(400, "Tạo thử cần số chương (limit).")
     try:
         res = bookq.Q.enqueue(book_id, ns, regenerate=body.regenerate)
     except bookq.QueueError as ex:
         raise HTTPException(400, str(ex))
+    if body.trial:
+        book["trial"] = {"limit": len(ns), "done_at": None}
+    elif body.chapters is None and not body.stale_only:  # "Tạo tiếp" / tạo cả truyện: hết giai đoạn thử
+        book.pop("trial", None)
+    books.save(book)
     return {**res, **queue_state(book_id)}
 
 

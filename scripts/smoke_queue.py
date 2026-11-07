@@ -195,7 +195,7 @@ def t_export() -> None:
     z = zipfile.ZipFile(io.BytesIO(client.get(f"/api/books/{bid}/export/{s['file']}").content))
     names = z.namelist()
     assert len(names) == 3 and names[0].startswith("0001 - ") and all(n.endswith(".mp3") for n in names), names
-    p = Path(tempfile.mkdtemp()) / "c1.mp3"
+    p = DATA / "c1.mp3"   # nằm trong DATA nên được dọn ở cuối
     p.write_bytes(z.read(names[0]))
     info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-of", "json", "-show_format", "-show_streams", str(p)], capture_output=True, text=True).stdout)
     st, tags = info["streams"][0], {k.lower(): v for k, v in info["format"].get("tags", {}).items()}
@@ -205,7 +205,7 @@ def t_export() -> None:
     j = post(f"/api/books/{bid}/export", {"kind": "m4b"}).json()
     s = wait_job(j["id"])
     assert s["status"] == "done", s
-    m = Path(tempfile.mkdtemp()) / "b.m4b"
+    m = DATA / "b.m4b"
     m.write_bytes(client.get(f"/api/books/{bid}/export/{s['file']}").content)
     info = json.loads(subprocess.run(["ffprobe", "-v", "error", "-of", "json", "-show_chapters", "-show_format", str(m)], capture_output=True, text=True).stdout)
     ch = info["chapters"]
@@ -378,6 +378,31 @@ def t_disk_purge_exported() -> None:
     assert statuses() == ["done"] * 3
 
 
+def t_trial_n_chapters_on_server() -> None:
+    """"Tạo thử N chương" lưu ở book.json: {limit, done_at}; xong N chương thì server tự dừng, ghi done_at và báo trong finish."""
+    bid = state["id"]
+    assert post(f"/api/books/{bid}/queue/run", {"trial": True}).status_code == 400   # thiếu limit
+    seq = q()["finish"]["seq"]
+    run_all(trial=True, limit=1, regenerate=True)
+    t = q(bid)["trial"]
+    assert t and t["limit"] == 1 and t["done_at"] is None, t
+    wait_for(lambda: (q(bid)["trial"] or {}).get("done_at"), what="done_at của tạo thử")
+    s = q(bid)
+    assert s["state"] == "idle" and s["remaining"] == 0 and s["finish"]["seq"] > seq and s["finish"]["trial"] is True, s["finish"]
+    assert client.get(f"/api/books/{bid}").json()["trial"]["limit"] == 1                      # GET truyện trả về trạng thái
+    r = client.patch(f"/api/books/{bid}", json={"dismiss_trial": True}); assert r.status_code == 200 and "trial" not in r.json()  # "Để sau"
+    assert q(bid)["trial"] is None
+    run_all(trial=True, limit=1, regenerate=True)
+    wait_for(lambda: (q(bid)["trial"] or {}).get("done_at"), what="done_at lần 2")
+    run_all(chapters=[2])                                                                     # tạo một chương lẻ: vẫn ở giai đoạn thử
+    assert q(bid)["trial"] is not None
+    wait_for(idle, what="idle")
+    run_all(regenerate=True)                                                                  # "Tạo tiếp": hết giai đoạn thử
+    assert q(bid)["trial"] is None
+    wait_for(idle, what="idle sau tạo tiếp")
+    assert q()["finish"]["trial"] is False
+
+
 def t_errors_and_guards() -> None:
     bid = state["id"]
     assert post(f"/api/books/{bid}/queue/run", {"chapters": [99]}).status_code == 400
@@ -401,6 +426,7 @@ def main() -> None:
             ("hàng đợi: đổi từ điển → chương lỗi thời, chạy lại chỉ các chương lỗi thời", t_stale_and_priority_of_settings),
             ("v2.1: đổi mức nghỉ / đọc tiêu đề / precision → chương lỗi thời, trả lại thì hết", t_pause_settings_stale),
             ("v2.1: dung lượng từng truyện, xoá nguồn FLAC chương đã xuất → trạng thái 'đã xuất', tạo lại", t_disk_purge_exported),
+            ("hàng đợi: tạo thử N chương lưu ở book.json, dừng sau N, banner đọc từ server, Để sau / Tạo tiếp xoá trạng thái", t_trial_n_chapters_on_server),
             ("hàng đợi: lỗi đầu vào, xoá truyện", t_errors_and_guards),
         ]:
             check(name, fn)
