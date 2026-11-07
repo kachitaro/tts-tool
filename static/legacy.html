@@ -190,7 +190,7 @@
 </head>
 <body>
 <div class="wrap">
-  <header><h1>Giọng Việt</h1><span>Chuyển văn bản thành giọng nói</span><span id="precBadge" class="hidden" style="margin-left:auto"></span></header>
+  <header><h1>Giọng Việt</h1><span>Giao diện cũ</span><a href="/" style="margin-left:12px;color:var(--accent)">← Về giao diện mới</a><span id="precBadge" class="hidden" style="margin-left:auto"></span></header>
   <nav class="tabs">
     <button data-tab="tts" class="on">Đọc văn bản</button>
     <button data-tab="lib">Thư viện giọng</button>
@@ -1893,6 +1893,15 @@ $("qPurge").addEventListener("click", purgeExported);
 $("qExpZip").addEventListener("click", () => qExport("mp3zip"));
 $("qExpM4b").addEventListener("click", () => qExport("m4b"));
 qPoll();
+
+// Liên kết sâu từ giao diện mới: #book, #book=<id>, #lib, #lib-add, #mix
+(() => {
+  const m = location.hash.match(/^#(book|lib|lib-add|mix)(?:=(.+))?$/);
+  if (!m) return;
+  showTab(m[1] === "lib-add" ? "lib" : m[1]);
+  if (m[1] === "book" && m[2]) openBook(decodeURIComponent(m[2]));
+  if (m[1] === "lib-add") openDlg();
+})();
 </script>
 </body>
 </html>

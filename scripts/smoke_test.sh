@@ -197,6 +197,16 @@ check "xoá giọng clone" expect_status 200 -X DELETE "$B/api/library/${LIB#lib
 check "giọng đã xoá → 404" expect_status 404 "$B/api/library/${LIB#lib:}/preview"
 check "lịch sử giữ tên giọng đã xoá (voice_label + voice_deleted)" bash -c "curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; m=[x for x in json.load(sys.stdin) if x.get('voice')=='$LIB']; assert m and m[0]['voice_label'] and m[0]['voice_deleted'] is True, m\""
 
+echo "== giao diện (khung mới: tệp tĩnh, giao diện cũ, tổng quan)"
+check "GET / trả khung mới (module JS + tokens.css, không còn giao diện cũ)" bash -c "curl -s $B/ | grep -q 'type=\"module\" src=\"/js/app.js\"' && curl -s $B/ | grep -q '/css/tokens.css' && ! curl -s $B/ | grep -q 'id=\"tab-tts\"'"
+check "GET /css/tokens.css (text/css, có biến màu, no-cache)" bash -c "curl -sD - $B/css/tokens.css | tr -d '\r' | grep -qi '^content-type: text/css' && curl -s $B/css/tokens.css | grep -q -- '--accent' && curl -sD - -o /dev/null $B/css/tokens.css | tr -d '\r' | grep -qi '^cache-control: no-cache'"
+check "GET /js/app.js là JavaScript" bash -c "curl -sD - -o /dev/null $B/js/app.js | tr -d '\r' | grep -qiE '^content-type: (text|application)/(javascript|x-javascript)'"
+check "GET /legacy trả giao diện cũ (liên kết sâu #book, #lib-add)" bash -c "curl -s $B/legacy | grep -q 'Giao diện cũ' && curl -s $B/legacy | grep -q 'lib-add'"
+if command -v node >/dev/null; then
+  check "mọi file static/js/**/*.js đúng cú pháp ES module" bash -c "for f in static/js/*.js static/js/views/*.js; do node --check --input-type=module < \$f || exit 1; done"
+  check "errors.js: lỗi kỹ thuật → lời thường + cách khắc phục (node tests/js/errors.test.mjs)" node tests/js/errors.test.mjs
+fi
+
 echo "== sách nói (nhập .txt/.epub, tách chương, làm sạch, ngăn cảnh → [nghỉ])"
 $PY scripts/smoke_books.py "$B" >"$WORK/books.out" 2>&1
 grep -E '^(PASS|FAIL)  ' "$WORK/books.out"

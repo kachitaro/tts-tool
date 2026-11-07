@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Giọng Việt</title>
+<link rel="stylesheet" href="/css/tokens.css" />
+<link rel="stylesheet" href="/css/base.css" />
+<link rel="stylesheet" href="/css/components.css" />
+</head>
+<body>
+<div class="topbar"><div class="topbar-in">
+  <button class="logo" id="logo" type="button"><b>Giọng</b> Việt</button>
+  <button class="running hidden" id="running" type="button"><span class="dot"></span><span id="runningText"></span></button>
+  <span class="spacer"></span>
+  <button class="iconbtn" id="btnHistory" type="button">🕘 Lịch sử</button>
+  <button class="iconbtn" id="btnSettings" type="button">⚙ Cài đặt</button>
+</div></div>
+
+<main class="page" id="view"></main>
+
+<div class="player idle" id="player"><div class="player-in">
+  <button class="pbtn" id="pPlay" type="button" aria-label="Phát">▶</button>
+  <div class="title"><b id="pTitle">Chưa phát gì</b><span id="pSub">Bấm ▶ ở bất kỳ đâu để nghe</span></div>
+  <button class="skip" id="pBack" type="button" aria-label="Lùi 10 giây">⟲ 10</button>
+  <div class="seek"><span class="time" id="pCur">0:00</span><input type="range" id="pSeek" min="0" max="1" step="0.1" value="0" aria-label="Tua" /><span class="time" id="pDur">0:00</span></div>
+  <button class="skip" id="pFwd" type="button" aria-label="Tới 10 giây">10 ⟳</button>
+  <button class="spd" id="pSpeed" type="button" aria-label="Tốc độ phát">1×</button>
+</div></div>
+
+<div class="drawer" id="drawer" aria-hidden="true"></div>
+<div class="scrim hidden" id="scrim"></div>
+<div id="modalHost"></div>
+<div id="toastHost"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

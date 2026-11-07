@@ -612,6 +612,21 @@ def t_pause_settings_api() -> None:
     state["pauses"] = bid
 
 
+def t_overview_api() -> None:
+    o = j(client.get(f"{B}/api/overview"))
+    assert set(o) == {"queue", "books", "current"} and o["queue"]["state"] in ("idle", "running", "paused", "pausing") and isinstance(o["books"], list), list(o)
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("o.txt", STORY.encode(), "text/plain"))], data={"title": "Tổng quan smoke"}))
+    mine = lambda: next(b for b in j(client.get(f"{B}/api/overview"))["books"] if b["id"] == d["id"])  # noqa: E731
+    b = mine()
+    assert b["status"] == "draft" and b["done"] == 0 and b["running"] is False and b["queued"] == 0 and b["chapters"] == 0, b
+    j(client.post(f"{B}/api/books/{d['id']}/chapters"))
+    b = mine()
+    assert b["status"] == "ready" and b["chapters"] == 5 and b["done"] == 0 and "size_bytes" in b and b["title"] == "Tổng quan smoke", b
+    assert {x["id"] for x in j(client.get(f"{B}/api/overview"))["books"]} == {x["id"] for x in j(client.get(f"{B}/api/books"))}   # cùng danh sách với /api/books
+    assert j(client.get(f"{B}/api/overview"))["current"] is None, "không có việc nào đang chạy thì current phải null"
+    j(client.delete(f"{B}/api/books/{d['id']}"))
+
+
 def t_disk_api() -> None:
     bid = state["pauses"]
     d = j(client.get(f"{B}/api/books/{bid}/disk"))
@@ -865,6 +880,7 @@ for name, fn in [
     ("API: nhập 3 file HTML, xem trước (thứ tự, cảnh báo, từ bị che), từ điển từ bị che, selector, zip", t_html_api),
     ("API: v2.1 GET /api/engines có precision", t_engines_precision_api),
     ("API: v2.1 mức nghỉ đoạn văn / tiêu đề trong cài đặt truyện, kiểm tra khoảng giá trị", t_pause_settings_api),
+    ("API: GET /api/overview (chỉ đọc: hàng đợi + truyện + tiến độ, current null khi rảnh)", t_overview_api),
     ("API: v2.1 dung lượng từng truyện, xoá nguồn FLAC khi chưa có gì đã xuất", t_disk_api),
     ("API: 6a+ tác động quy tắc, ngoại lệ lưu và dùng lại khi tách chương", t_rule_impact_api),
     ("API: 6b từ điển toàn cục + của truyện, /lexicon/apply", t_lexicon_api),

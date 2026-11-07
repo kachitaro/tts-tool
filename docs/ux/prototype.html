@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Giọng Việt — bản mẫu giao diện (UX-0)</title>
+<style>
+/* ───── design tokens: đổi bộ màu / cỡ chữ chỉ cần sửa khối này (UX-1 sẽ tách thành static/css/tokens.css) ───── */
+:root {
+  --bg: #f7f6f3; --surface: #ffffff; --surface-2: #f0eee9; --line: #e3e0d8;
+  --text: #1d1b16; --muted: #6a665b;
+  --accent: #2f6f5e; --accent-strong: #245a4c; --accent-soft: #e2f0ec; --on-accent: #ffffff;
+  --ok: #2f7d4f; --warn: #a86a00; --warn-soft: #fff3d9; --err: #b3372f; --err-soft: #fde8e6;
+  --radius: 16px; --radius-sm: 10px;
+  --fs: 18px; --fs-sm: 15px; --fs-lg: 22px; --fs-xl: 30px;
+  --gap: 20px; --topbar-h: 64px; --player-h: 76px;
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a; --surface: #1d2025; --surface-2: #272b32; --line: #333842;
+    --text: #eceae4; --muted: #a29e92;
+    --accent: #58b79f; --accent-strong: #75cbb5; --accent-soft: #1f3a33; --on-accent: #0e1a16;
+    --ok: #6cc58d; --warn: #e0b04d; --warn-soft: #3a2f14; --err: #ee7b73; --err-soft: #3b1f1d;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs)/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: calc(var(--player-h) + 24px); }
+button, input, select, textarea { font: inherit; color: inherit; }
+h1, h2, h3 { margin: 0; line-height: 1.25; }
+h2 { font-size: var(--fs-xl); letter-spacing: -.01em; }
+h3 { font-size: var(--fs-lg); }
+p { margin: 0 0 12px; }
+a { color: var(--accent); }
+.muted { color: var(--muted); font-size: var(--fs-sm); }
+.hidden { display: none !important; }
+
+/* thanh trên cùng */
+.topbar { position: sticky; top: 0; z-index: 20; background: var(--surface); border-bottom: 1px solid var(--line); }
+.topbar-in { max-width: 1040px; margin: 0 auto; padding: 0 20px; min-height: var(--topbar-h); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.logo { font-weight: 700; font-size: 20px; cursor: pointer; background: none; border: 0; padding: 0; color: var(--text); }
+.logo b { color: var(--accent); }
+.spacer { flex: 1; }
+.running { display: flex; align-items: center; gap: 10px; background: var(--accent-soft); color: var(--text); border: 0; border-radius: 999px;
+  padding: 8px 16px; font-size: var(--fs-sm); cursor: pointer; max-width: 100%; text-align: left; }
+.running .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1.4s infinite; flex: none; }
+@keyframes pulse { 50% { opacity: .3; } }
+.iconbtn { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font-size: var(--fs-sm); cursor: pointer; color: var(--text); }
+.iconbtn:hover { background: var(--surface-2); }
+
+.page { max-width: 1040px; margin: 0 auto; padding: 28px 20px 40px; }
+.crumb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--muted); font-size: var(--fs-sm); margin-bottom: 14px; }
+.crumb a { color: var(--muted); text-decoration: none; cursor: pointer; }
+.crumb a:hover { color: var(--accent); text-decoration: underline; }
+.pagehead { margin-bottom: 8px; }
+.lead { color: var(--muted); margin: 6px 0 24px; }
+
+/* nút */
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 11px 18px; cursor: pointer; font-weight: 500; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; padding: 14px 26px; font-size: 19px; }
+.btn.primary:hover { background: var(--accent-strong); }
+.btn.small { padding: 7px 12px; font-size: var(--fs-sm); border-radius: 10px; }
+.btn.ghost { border-color: transparent; background: none; color: var(--accent); }
+.btn.danger { color: var(--err); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.play { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); cursor: pointer; flex: none; display: inline-grid; place-items: center; font-size: 14px; color: var(--accent); }
+.play:hover { background: var(--accent-soft); }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.row.end { justify-content: flex-end; }
+.stack > * + * { margin-top: var(--gap); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow); }
+.card.flat { box-shadow: none; }
+label.field { display: block; font-weight: 600; margin: 0 0 6px; }
+input[type=text], input[type=search], input[type=number], select, textarea {
+  width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px 14px; }
+textarea { resize: vertical; line-height: 1.6; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 3px solid var(--accent-soft); outline-offset: 1px; border-color: var(--accent); }
+.hint { color: var(--muted); font-size: var(--fs-sm); margin-top: 6px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: var(--fs-sm); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 10px 18px; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button.on { background: var(--accent); color: var(--on-accent); font-weight: 600; }
+.switch { display: inline-flex; align-items: center; gap: 12px; cursor: pointer; font-weight: 500; user-select: none; }
+.switch input { appearance: none; width: 48px; height: 28px; border-radius: 999px; background: var(--line); position: relative; cursor: pointer; transition: .2s; flex: none; margin: 0; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: .2s; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { left: 23px; }
+.check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.check input { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--accent); flex: none; }
+details.adv { border-top: 1px dashed var(--line); margin-top: 22px; padding-top: 14px; }
+details.adv > summary { cursor: pointer; color: var(--muted); font-size: var(--fs-sm); list-style: none; }
+details.adv > summary::before { content: "▸ "; }
+details.adv[open] > summary::before { content: "▾ "; }
+details.adv > .adv-body { margin-top: 14px; }
+.notice { border-radius: var(--radius-sm); padding: 12px 16px; margin: 10px 0; font-size: var(--fs-sm); }
+.notice.warn { background: var(--warn-soft); }
+.notice.err { background: var(--err-soft); }
+.notice.ok { background: var(--accent-soft); }
+.notice summary { cursor: pointer; margin-top: 6px; color: var(--muted); }
+.bar { height: 14px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .4s; }
+.bar.big { height: 22px; }
+
+/* màn chính */
+.bigcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap); }
+.bigcard { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 20px; padding: 28px; cursor: pointer; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; gap: 10px; min-height: 220px; transition: .15s; }
+.bigcard:hover { transform: translateY(-2px); border-color: var(--accent); }
+.bigcard .emoji { font-size: 40px; }
+.bigcard h3 { font-size: 26px; }
+.bigcard p { color: var(--muted); margin: 0; }
+.bigcard .go { margin-top: auto; color: var(--accent); font-weight: 600; }
+.bigcard.main { border-color: var(--accent); }
+
+/* thẻ truyện */
+.booklist { display: grid; gap: var(--gap); }
+.book { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; cursor: pointer; }
+.book:hover { border-color: var(--accent); }
+.book h3 { font-size: 22px; }
+.tag { display: inline-block; font-size: 13px; padding: 2px 10px; border-radius: 999px; background: var(--surface-2); color: var(--muted); margin-left: 8px; vertical-align: middle; }
+.tag.run { background: var(--accent-soft); color: var(--accent-strong); }
+.tag.ok { background: var(--accent-soft); color: var(--ok); }
+
+/* trình hướng dẫn */
+.steps { display: flex; gap: 8px; margin: 6px 0 26px; flex-wrap: wrap; }
+.step { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: var(--fs-sm); }
+.step .n { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-weight: 700; flex: none; }
+.step.on { color: var(--text); font-weight: 600; }
+.step.on .n { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.step.done .n { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.step + .step::before { content: ""; width: 28px; height: 2px; background: var(--line); margin-right: 2px; }
+.drop { border: 2px dashed var(--line); border-radius: 20px; padding: 52px 20px; text-align: center; cursor: pointer; background: var(--surface); }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop .big { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+.filechip { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--surface); }
+.chlist { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.chrow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.chrow:first-child { border-top: 0; }
+.chrow .name { flex: 1; min-width: 0; }
+.chrow .name b { font-weight: 600; }
+.chrow .sub { color: var(--muted); font-size: var(--fs-sm); }
+.chrow.skip { color: var(--muted); justify-content: center; background: var(--surface-2); font-size: var(--fs-sm); }
+.fixpanel { border: 2px solid var(--accent-soft); border-radius: 16px; padding: 20px; margin-top: 18px; background: var(--surface); }
+.fixpanel h3 { font-size: 20px; margin-bottom: 6px; }
+.fixpanel section + section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.sample { font-family: ui-monospace, monospace; font-size: 15px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--surface-2); cursor: pointer; display: block; width: 100%; text-align: left; margin-top: 6px; }
+.sample.on { border-color: var(--accent); background: var(--accent-soft); }
+.vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.voice { border: 2px solid var(--line); border-radius: 16px; padding: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; cursor: pointer; text-align: left; }
+.voice.sel { border-color: var(--accent); background: var(--accent-soft); }
+.voice .top { display: flex; align-items: center; gap: 10px; }
+.voice .top b { flex: 1; font-size: 19px; }
+.voice .meta { color: var(--muted); font-size: var(--fs-sm); }
+.voice .acts { display: flex; gap: 8px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+.fav { background: none; border: 0; font-size: 22px; cursor: pointer; color: var(--muted); padding: 0 4px; }
+.fav.on { color: #d9534f; }
+.stickyfoot { position: sticky; bottom: calc(var(--player-h) + 8px); background: var(--bg); padding: 14px 0; margin-top: 18px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--line); z-index: 5; }
+
+/* trang truyện */
+.dash { display: grid; gap: var(--gap); }
+.dash .big { font-size: 44px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin: 28px 0 18px; overflow-x: auto; }
+.tabs button { background: none; border: 0; padding: 12px 20px; font-weight: 500; cursor: pointer; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; }
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.menu { position: relative; display: inline-block; }
+.menu > .pop { position: absolute; right: 0; top: calc(100% + 6px); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); min-width: 280px; z-index: 30; padding: 6px; }
+.menu > .pop button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 12px 14px; border-radius: 10px; cursor: pointer; }
+.menu > .pop button:hover { background: var(--surface-2); }
+.menu > .pop small { display: block; color: var(--muted); font-size: 14px; }
+.kv { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.nameline { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 10px; align-items: center; margin-bottom: 10px; }
+
+/* đọc văn bản */
+.reader { display: grid; gap: var(--gap); }
+.reader textarea { min-height: 220px; font-size: 19px; }
+.castrow { display: grid; grid-template-columns: 140px 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.castrow:first-child { border-top: 0; }
+.dline { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); align-items: center; }
+.audiocard { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+
+/* lịch sử + hộp thoại */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--surface); border-left: 1px solid var(--line); z-index: 40; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; transform: translateX(105%); transition: .25s; }
+.drawer.open { transform: none; }
+.drawer header { padding: 18px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.drawer .body { overflow: auto; padding: 8px 20px 90px; flex: 1; }
+.hitem { padding: 14px 0; border-top: 1px solid var(--line); }
+.hitem:first-child { border-top: 0; }
+.hitem .txt { margin: 4px 0 10px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 35; }
+.modal { position: fixed; z-index: 50; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto;
+  background: var(--surface); border-radius: 20px; padding: 26px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+.modal h3 { margin-bottom: 16px; }
+
+/* trình phát dính đáy */
+.player { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 20px rgba(0,0,0,.06); }
+.player-in { max-width: 1040px; margin: 0 auto; padding: 10px 20px; min-height: var(--player-h); display: flex; align-items: center; gap: 14px; }
+.player .title { min-width: 0; flex: 0 1 260px; }
+.player .title b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 16px; }
+.player .title span { color: var(--muted); font-size: 14px; }
+.player .seek { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.player input[type=range] { flex: 1; accent-color: var(--accent); min-width: 60px; }
+.player .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; white-space: nowrap; }
+.player .pbtn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent); cursor: pointer; font-size: 18px; flex: none; }
+.player .skip { background: none; border: 0; cursor: pointer; font-size: 14px; color: var(--text); padding: 6px; }
+.player .spd { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; cursor: pointer; font-size: 14px; }
+.player.idle .seek, .player.idle .skip, .player.idle .spd, .player.idle .pbtn { opacity: .35; pointer-events: none; }
+
+/* bảng điều khiển bản mẫu */
+.demo { position: fixed; right: 12px; bottom: calc(var(--player-h) + 12px); z-index: 60; background: #222; color: #fff; border-radius: 14px; padding: 10px 12px; font-size: 13px; max-width: 270px; opacity: .92; }
+.demo summary { cursor: pointer; list-style: none; }
+.demo button { background: #444; color: #fff; border: 0; border-radius: 8px; padding: 6px 10px; margin: 6px 6px 0 0; cursor: pointer; font-size: 13px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--player-h) + 20px); z-index: 70; background: var(--surface); border: 1px solid var(--line); border-left: 6px solid var(--err);
+  border-radius: 14px; padding: 16px 20px; box-shadow: var(--shadow); width: min(560px, calc(100% - 24px)); }
+
+/* chỉ dùng khi chụp ảnh toàn trang */
+body.shot .topbar, body.shot .player, body.shot .demo, body.shot .stickyfoot { position: static; }
+body.shot { padding-bottom: 0; }
+
+@media (max-width: 760px) {
+  :root { --fs: 17px; --fs-xl: 26px; }
+  .bigcards { grid-template-columns: 1fr; }
+  .bigcard { min-height: 0; padding: 22px; flex-direction: row; align-items: center; gap: 16px; }
+  .bigcard .go { display: none; }
+  .bigcard .emoji { font-size: 34px; }
+  .bigcard h3 { font-size: 22px; }
+  .two, .nameline { grid-template-columns: 1fr; }
+  .castrow { grid-template-columns: 1fr auto; } .castrow b { grid-column: 1 / -1; }
+  .chrow { flex-wrap: wrap; } .chrow .name { flex-basis: 100%; }
+  .dline { grid-template-columns: auto 1fr; } .dline > span.row { grid-column: 1 / -1; }
+  .book { grid-template-columns: 1fr; }
+  .player-in { flex-wrap: wrap; gap: 6px 10px; padding: 8px 14px; }
+  .player .title { flex-basis: calc(100% - 70px); }
+  .player .seek { order: 5; flex-basis: 100%; }
+  :root { --player-h: 112px; }
+  .dash .big { font-size: 34px; }
+  .page { padding: 20px 14px 30px; }
+  .topbar-in { padding: 8px 14px; gap: 8px; }
+  .running { order: 9; flex-basis: 100%; }
+  .demo { bottom: calc(var(--player-h) + 8px); max-width: 200px; }
+  .stickyfoot .btn.primary { width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="topbar-in">
+  <button class="logo" data-go="/"><b>Giọng</b> Việt</button>
+  <button class="running hidden" id="running" data-go="/sach/truyen/la-phi"><span class="dot"></span><span id="runningText"></span></button>
+  <span class="spacer"></span>
+  <button class="iconbtn" data-act="openHistory">🕘 Lịch sử</button>
+  <button class="iconbtn" data-act="openSettings">⚙ Cài đặt</button>
+</div></div>
+
+<main class="page" id="view"></main>
+
+<div class="player idle" id="player"><div class="player-in">
+  <button class="pbtn" id="pPlay" aria-label="Phát / tạm dừng">▶</button>
+  <div class="title"><b id="pTitle">Chưa phát gì</b><span id="pSub">Bấm ▶ ở bất kỳ đâu để nghe</span></div>
+  <button class="skip" id="pBack" aria-label="Lùi 10 giây">⟲ 10</button>
+  <div class="seek"><span class="time" id="pCur">0:00</span><input type="range" id="pSeek" min="0" max="100" value="0" aria-label="Tua" /><span class="time" id="pDur">0:00</span></div>
+  <button class="skip" id="pFwd" aria-label="Tới 10 giây">10 ⟳</button>
+  <button class="spd" id="pSpeed" aria-label="Tốc độ phát">1×</button>
+</div></div>
+
+<div class="drawer" id="drawer" aria-hidden="true"></div>
+<div class="scrim hidden" id="scrim"></div>
+<div id="modalHost"></div>
+<div id="toastHost"></div>
+
+<details class="demo"><summary>🛠 Bản mẫu: bấm để thử tình huống</summary>
+  <button data-act="demoError">Giả lập lỗi</button>
+  <button data-act="demoRunning">Bật/tắt “đang tạo”</button>
+  <button data-act="demoStale">Giả lập đổi cài đặt</button>
+  <div style="margin-top:8px;opacity:.7">Chỉ là bản mẫu: dữ liệu giả, không có âm thanh thật.</div>
+</details>
+
+<script>
+"use strict";
+/* ───────────── dữ liệu giả ───────────── */
+const VOICES = [
+  { id: "hd", name: "Hải Đăng", gender: "Nam", region: "Bắc", kind: "máy", note: "Trầm ấm, hợp kể truyện", fav: true, mine: false },
+  { id: "tl", name: "Trúc Ly", gender: "Nữ", region: "Nam", kind: "máy", note: "Nhẹ nhàng, rõ chữ", fav: true, mine: false },
+  { id: "ad", name: "Adam", gender: "Nam", region: "Nam", kind: "máy", note: "Vui, hợp truyện hài", fav: false, mine: false },
+  { id: "hm", name: "Hoài My", gender: "Nữ", region: "Bắc", kind: "online", note: "Nhanh, cần có mạng", fav: false, mine: false },
+  { id: "nm", name: "Nam Minh", gender: "Nam", region: "Bắc", kind: "online", note: "Nhanh, cần có mạng", fav: false, mine: false },
+  { id: "me", name: "Giọng của mẹ", gender: "Nữ", region: "Trung", kind: "máy", note: "Tôi ghi âm ngày 12/10", fav: true, mine: true },
+  { id: "mx", name: "Hải Đăng × Trúc Ly", gender: "Nam", region: "", kind: "máy", note: "Pha: 60% Hải Đăng, 40% Trúc Ly", fav: false, mine: true, mix: true },
+];
+const kindLabel = (k) => k === "online" ? "Giọng online" : "Giọng trên máy";
+const BOOKS = {
+  "la-phi": { id: "la-phi", title: "Cảnh Sát Hình Sự La Phi", author: "Lôi Mễ", chapters: 171, done: 12, running: true, hours: 9.2, voice: "hd" },
+  "dau-pha": { id: "dau-pha", title: "Đấu Phá Thương Khung", author: "Thiên Tàm Thổ Đậu", chapters: 24, done: 24, running: false, hours: 0, voice: "tl" },
+};
+const state = {
+  running: true, paused: false, stale: false,
+  wiz: { step: 1, file: false, title: "Cảnh Sát Hình Sự La Phi", checked: false, fix: false, voice: "hd", dlg: false, trial5: true, trialDone: false, sample: 0, tpl: 0 },
+  read: { multi: false, mode: "máy", speed: 1, voice: "hd", done: false },
+  lib: { q: "", f: "all" }, bookTab: "chuong", chFilter: "all", histOpen: false,
+};
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const $ = (s, r = document) => r.querySelector(s);
+const voiceName = (id) => (VOICES.find((v) => v.id === id) || {}).name || "";
+
+/* ───────────── trình phát giả ───────────── */
+const P = { on: false, t: 0, dur: 60, speed: 1, timer: null };
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+function playerShow() {
+  $("#player").classList.remove("idle");
+  $("#pPlay").textContent = P.on ? "❚❚" : "▶";
+  $("#pCur").textContent = fmt(P.t); $("#pDur").textContent = fmt(P.dur);
+  $("#pSeek").max = P.dur; $("#pSeek").value = P.t; $("#pSpeed").textContent = P.speed + "×";
+}
+function play(title, sub, dur = 60) {
+  P.on = true; P.t = 0; P.dur = dur; $("#pTitle").textContent = title; $("#pSub").textContent = sub; playerShow();
+  clearInterval(P.timer);
+  P.timer = setInterval(() => { if (!P.on) return; P.t = Math.min(P.dur, P.t + 0.25 * P.speed); if (P.t >= P.dur) P.on = false; playerShow(); }, 250);
+}
+$("#pPlay").onclick = () => { P.on = !P.on; if (P.on && P.t >= P.dur) P.t = 0; playerShow(); };
+$("#pBack").onclick = () => { P.t = Math.max(0, P.t - 10); playerShow(); };
+$("#pFwd").onclick = () => { P.t = Math.min(P.dur, P.t + 10); playerShow(); };
+$("#pSeek").oninput = (e) => { P.t = +e.target.value; playerShow(); };
+$("#pSpeed").onclick = () => { const o = [1, 1.25, 1.5, 2]; P.speed = o[(o.indexOf(P.speed) + 1) % o.length]; playerShow(); };
+
+/* ───────────── điều hướng ───────────── */
+const route = () => location.hash.replace(/^#/, "") || "/";
+const go = (p) => { location.hash = p; };
+window.addEventListener("hashchange", render);
+
+function runningBar() {
+  const b = BOOKS["la-phi"], el = $("#running");
+  el.classList.toggle("hidden", !state.running);
+  if (state.running) {
+    const left = state.paused ? "đang tạm dừng" : `còn ~${Math.floor(b.hours)} giờ ${Math.round((b.hours % 1) * 60)} phút`;
+    $("#runningText").textContent = `Đang tạo: ${b.title}, chương ${b.done}/${b.chapters}, ${left}`;
+  }
+}
+
+function render() {
+  const r = route(); runningBar();
+  const v = $("#view");
+  let html;
+  if (r === "/") html = home();
+  else if (r === "/sach") html = bookList();
+  else if (r.startsWith("/sach/them")) html = wizard();
+  else if (r.startsWith("/sach/truyen/")) html = dashboard(BOOKS[r.split("/")[3]] || BOOKS["la-phi"]);
+  else if (r === "/doc") html = reader();
+  else if (r === "/giong") html = voices();
+  else html = home();
+  v.innerHTML = html;
+  if (render.last !== r) window.scrollTo(0, 0); // chỉ cuộn lên đầu khi đổi trang, không khi cập nhật tại chỗ
+  render.last = r;
+}
+
+/* ───────────── màn chính ───────────── */
+function home() {
+  return `
+  <div class="pagehead"><h2>Chào bạn, hôm nay muốn làm gì?</h2></div>
+  <p class="lead">Chọn một việc bên dưới. Việc nào cũng làm được ngay, không cần cài đặt gì thêm.</p>
+  <div class="bigcards">
+    <button class="bigcard main" data-go="/sach"><span class="emoji">📚</span><div><h3>Làm sách nói</h3><p>Biến cả một bộ truyện thành sách nói, từng chương một.</p></div><span class="go">Bắt đầu →</span></button>
+    <button class="bigcard" data-go="/doc"><span class="emoji">🗣️</span><div><h3>Đọc văn bản</h3><p>Dán một đoạn chữ, nghe đọc ngay. Có thể cho nhiều người cùng đọc.</p></div><span class="go">Mở →</span></button>
+    <button class="bigcard" data-go="/giong"><span class="emoji">🎙️</span><div><h3>Giọng của tôi</h3><p>Nghe thử các giọng, thêm giọng từ file ghi âm hoặc pha giọng mới.</p></div><span class="go">Xem →</span></button>
+  </div>
+  <h3 style="margin:36px 0 14px">Đang làm dở</h3>
+  <div class="booklist">${bookCard(BOOKS["la-phi"])}</div>`;
+}
+
+/* ───────────── làm sách nói: danh sách ───────────── */
+function bookCard(b) {
+  const pct = Math.round((b.done / b.chapters) * 100);
+  const status = b.running ? `<span class="tag run">${state.paused ? "Đang tạm dừng" : "Đang tạo"}</span>` : b.done === b.chapters ? `<span class="tag ok">Đã xong</span>` : "";
+  return `<div class="card book" data-go="/sach/truyen/${b.id}">
+    <div><h3>${esc(b.title)} ${status}</h3>
+      <div class="muted">${esc(b.author)} · ${b.chapters} chương · đã tạo ${b.done}</div>
+      <div class="bar" style="margin-top:12px"><i style="width:${pct}%"></i></div></div>
+    <button class="btn">Mở</button></div>`;
+}
+function bookList() {
+  return `
+  <div class="crumb"><a data-go="/">Trang chính</a> › <span>Làm sách nói</span></div>
+  <div class="row" style="justify-content:space-between;margin-bottom:8px"><h2>Sách nói của bạn</h2>
+    <button class="btn primary" data-act="newBook">＋ Thêm truyện</button></div>
+  <p class="lead">Thêm file truyện, chọn giọng, rồi để máy tạo từng chương.</p>
+  <div class="booklist">${bookCard(BOOKS["la-phi"])}${bookCard(BOOKS["dau-pha"])}</div>`;
+}
+
+/* ───────────── trình hướng dẫn thêm truyện ───────────── */
+function stepper(n) {
+  const names = ["Chọn file", "Kiểm tra", "Chọn giọng và nghe thử"];
+  return `<div class="steps">${names.map((t, i) => `<div class="step ${i + 1 === n ? "on" : i + 1 < n ? "done" : ""}"><span class="n">${i + 1 < n ? "✓" : i + 1}</span>${t}</div>`).join("")}</div>`;
+}
+function wizard() {
+  const w = state.wiz;
+  const crumb = `<div class="crumb"><a data-go="/">Trang chính</a> › <a data-go="/sach">Làm sách nói</a> › <span>Thêm truyện</span></div>`;
+  if (w.step === 1) return crumb + `<h2>Thêm truyện</h2>` + `<p class="lead" style="margin-bottom:12px">Bước 1 — chọn file truyện của bạn.</p>` + stepper(1) + `
+    <div class="drop" data-act="pickFile"><div class="big">Kéo file vào đây, hoặc bấm để chọn</div>
+      <div class="muted">Nhận file .txt, .epub, .html hoặc một file .zip chứa nhiều file</div></div>
+    <p class="hint" style="margin-top:14px">💡 Tool sẽ tự chia truyện thành từng chương để bạn nghe và tạo từng phần.</p>
+    ${w.file ? `<div class="stack" style="margin-top:18px">
+      <div class="filechip"><span>🗂️</span><div style="flex:1"><b>la-phi-chuong-1-171.zip</b><div class="muted">171 file chương · 38 MB</div></div><button class="btn small" data-act="clearFile">Bỏ</button></div>
+      <div><label class="field" for="wTitle">Tên truyện</label><input type="text" id="wTitle" value="${esc(w.title)}" /><div class="hint">Tool đã đọc tên này từ file. Bạn có thể sửa.</div></div>
+      <div class="row end"><button class="btn primary" data-act="wizNext">Tiếp tục →</button></div></div>` : ""}`;
+  if (w.step === 2) return crumb + `<h2>Kiểm tra</h2><p class="lead" style="margin-bottom:12px">Bước 2 — xem tool chia truyện có đúng ý bạn không.</p>` + stepper(2) + `
+    <div class="card"><h3 style="font-size:26px">Tìm thấy 171 chương</h3>
+      <p class="muted">Tổng cộng khoảng 640.000 chữ, nghe hết khoảng 41 giờ.</p>
+      <div class="chlist">
+        ${[["1", "Bức tranh tức giận (1)"], ["2", "Bức tranh tức giận (2)"], ["3", "Người lạ trong đêm"]].map(([n, t]) => `<div class="chrow"><div class="name"><b>Chương ${n}</b> · ${t}<div class="sub">${n === "3" ? "2.940" : "3.200"} chữ</div></div><button class="play" data-play="Chương ${n}: ${t}|Xem trước|40" aria-label="Nghe thử">▶</button></div>`).join("")}
+        <div class="chrow skip">… 166 chương nữa · <a data-act="showAll" style="cursor:pointer;margin-left:4px">Xem tất cả</a></div>
+        <div class="chrow"><div class="name"><b>Chương 171</b> · Kết thúc<div class="sub">4.012 chữ</div></div></div>
+      </div>
+      <div class="notice warn">⚠ <b>Thiếu chương 3 và 57.</b> Trong các file bạn chọn không có hai chương này. Bạn có thể thêm file rồi kiểm tra lại, hoặc bỏ qua.</div>
+      <div class="notice warn">⚠ <b>Chương 88 rất ngắn</b> (120 chữ). Có thể đó là trang quảng cáo.</div>
+      <div class="notice warn">⚠ <b>2 từ bị che bằng dấu sao</b> mà tool chưa biết: <b>zz*zz</b>, <b>q*t</b>.
+        <div class="row" style="margin-top:8px"><input type="text" placeholder="Từ đúng là…" style="max-width:200px" /><button class="btn small" data-act="toast" data-msg="Đã lưu. Tool sẽ nhớ từ này cho các truyện sau.">Lưu</button></div></div>
+      <p class="muted" style="margin-top:14px">Không có lỗi nào nghiêm trọng. Nếu các chương và tiêu đề ở trên trông đúng, bạn có thể đi tiếp.</p>
+      <div class="row" style="margin-top:6px"><button class="btn primary" data-act="wizNext">Đúng rồi, tiếp tục</button><button class="btn" data-act="toggleFix">Có chỗ sai</button></div>
+      ${w.fix ? fixPanel() : ""}
+    </div>
+    <div class="row" style="margin-top:16px"><button class="btn ghost" data-act="wizBack">← Quay lại</button></div>`;
+  return crumb + `<h2>Chọn giọng và nghe thử</h2><p class="lead" style="margin-bottom:12px">Bước 3 — chọn người sẽ đọc truyện cho bạn.</p>` + stepper(3) + `
+    <div class="vgrid">${VOICES.filter((v) => !v.mix).map((v) => `
+      <div class="voice ${w.voice === v.id ? "sel" : ""}" data-act="pickVoice" data-id="${v.id}">
+        <div class="top"><b>${esc(v.name)}</b><button class="play" data-play="${esc(v.name)}|Nghe thử giọng|8" aria-label="Nghe thử">▶</button></div>
+        <div class="meta">${v.gender} · ${kindLabel(v.kind)}</div><div class="meta">${esc(v.note)}</div>
+        ${w.voice === v.id ? `<div style="color:var(--accent);font-weight:600">✓ Đang chọn</div>` : ""}</div>`).join("")}</div>
+    <div class="card flat" style="margin-top:22px"><h3 style="font-size:20px;margin-bottom:6px">Nghe thử 1 phút đầu chương 1</h3>
+      <p class="muted">Nghe trước xem giọng này đọc truyện của bạn có ưng không. Chưa tạo gì cả.</p>
+      <button class="btn" data-act="trial">▶ Nghe thử bằng giọng ${esc(voiceName(w.voice))}</button>
+      ${w.sample ? `<div class="bar" style="margin-top:12px"><i style="width:${w.sample}%"></i></div><div class="hint">${w.sample < 100 ? "Đang chuẩn bị bản nghe thử… khoảng 30 giây" : "Xong! Bạn đang nghe ở thanh phát bên dưới."}</div>` : ""}</div>
+    <div class="card flat" style="margin-top:16px"><label class="switch"><input type="checkbox" data-act="toggleDlg" ${w.dlg ? "checked" : ""} /> Lời thoại đọc bằng giọng khác</label>
+      <p class="hint">Lời nhân vật (trong dấu ngoặc kép hoặc sau gạch đầu dòng) sẽ do một người khác đọc, phần dẫn vẫn do người kể đọc.</p>
+      ${w.dlg ? `<select style="max-width:300px">${VOICES.filter((v) => !v.mix).map((v) => `<option ${v.id === "tl" ? "selected" : ""}>${esc(v.name)} — ${kindLabel(v.kind)}</option>`).join("")}</select>` : ""}</div>
+    <div class="stickyfoot"><button class="btn primary" data-act="startBook">Bắt đầu tạo sách nói</button>
+      <label class="check"><input type="checkbox" data-act="toggleTrial5" ${w.trial5 ? "checked" : ""} /><span><b>Tạo thử 5 chương trước</b> (nên chọn)<br><span class="muted">Truyện có hơn 20 chương nên bạn nghe thử trước, ưng rồi mới tạo tiếp.</span></span></label></div>
+    <details class="adv"><summary>Nâng cao</summary><div class="adv-body two">
+      <div><label class="field">Tốc độ đọc</label><select><option>Bình thường</option><option>Nhanh hơn (2×)</option><option>Rất nhanh (3×)</option></select></div>
+      <div><label class="field">Nghỉ giữa các đoạn văn</label><select><option>0,6 giây</option><option>0,3 giây</option><option>1 giây</option></select></div>
+      <label class="check"><input type="checkbox" checked /><span>Đọc tên chương ở đầu mỗi chương</span></label>
+      <label class="check"><input type="checkbox" checked /><span>Giữ máy không đi ngủ khi đang tạo</span></label></div></details>
+    <div class="row" style="margin-top:16px"><button class="btn ghost" data-act="wizBack">← Quay lại</button></div>`;
+}
+function fixPanel() {
+  const w = state.wiz;
+  return `<div class="fixpanel"><h3>Chỗ nào chưa đúng? Chọn cách sửa</h3><p class="muted">Bạn chỉ cần sửa phần nào thấy sai.</p>
+    <section><b>Tool chia chương chưa đúng chỗ</b><p class="muted" style="margin:4px 0 8px">Bấm vào dòng nào giống một tiêu đề chương, tool sẽ tìm các dòng giống vậy.</p>
+      ${["Chương 5: Gặp gỡ", "CHƯƠNG 5 — GẶP GỠ", "Hồi 5. Gặp gỡ", "5. Gặp gỡ"].map((s, i) => `<button class="sample ${w.tpl === i ? "on" : ""}" data-act="pickTpl" data-i="${i}">${s}</button>`).join("")}
+      <div class="hint">Với mẫu đang chọn tool tìm thấy <b>${[171, 171, 0, 12][w.tpl]} chương</b>.</div></section>
+    <section><b>Gộp hoặc tách chương</b><p class="muted" style="margin:4px 0 8px">Ví dụ chương 88 quá ngắn nên gộp vào chương 89.</p>
+      <div class="chlist"><div class="chrow"><div class="name"><b>Chương 88</b> <span class="sub">120 chữ</span></div><button class="btn small" data-act="toast" data-msg="Đã gộp chương 88 vào chương 89.">Gộp với chương sau</button><button class="btn small" data-act="toast" data-msg="Chọn đoạn văn muốn tách ở đây (bản thật).">Tách…</button></div></div></section>
+    <section><b>Dọn văn bản</b><p class="muted" style="margin:4px 0 8px">Tool tự dọn những thứ sau. Bỏ chọn nếu bạn không muốn.</p>
+      <div class="stack" style="--gap:10px">${[["Bỏ dòng có đường link và tên trang web", "2 dòng"], ["Khôi phục chữ bị che bằng dấu sao (vd. h*m m**n)", "7 chỗ"], ["Ghép số bị tách (2. 513 thành 2.513)", "3 chỗ"], ["Bỏ dòng trống thừa", "23 dòng"], ["Chuẩn hoá dấu ngoặc kép và dấu ba chấm", "21 dòng"]].map(([t, n]) => `<label class="check"><input type="checkbox" checked /><span>${t} <span class="muted">· ảnh hưởng ${n}</span> <a data-act="toast" data-msg="Hiện danh sách các dòng bị ảnh hưởng, mỗi dòng có nút “Giữ nguyên dòng này” (bản thật)." style="cursor:pointer;font-size:14px">xem</a></span></label>`).join("")}</div></section>
+    <details class="adv"><summary>Nâng cao</summary><div class="adv-body"><label class="field">Mẫu tiêu đề chương (regex)</label><input type="text" value="^\\s*(?:Chương|Hồi)\\s+\\d+" /><label class="field" style="margin-top:12px">Khung chương trong trang web (selector)</label><input type="text" value="#chapter-c" /><div class="hint">Chỉ cần khi file là trang web đã lưu và tool không tìm thấy nội dung.</div></div></details></div>`;
+}
+
+/* ───────────── trang truyện (bảng điều khiển) ───────────── */
+function dashboard(b) {
+  const isRun = b.id === "la-phi";
+  const pct = Math.round((b.done / b.chapters) * 100);
+  const head = `<div class="crumb"><a data-go="/">Trang chính</a> › <a data-go="/sach">Làm sách nói</a> › <span>${esc(b.title)}</span></div>`;
+  const staleBanner = state.stale && isRun ? `<div class="notice warn" style="margin:0">⚠ <b>Cần tạo lại 12 chương</b> — bạn đã đổi cài đặt (đổi giọng kể) nên các chương đã tạo chưa theo cài đặt mới. <button class="btn small" data-act="toast" data-msg="Đã xếp 12 chương vào hàng tạo lại.">Tạo lại các chương này</button></div>` : "";
+  const top = `<div class="card dash">
+    <div><h2>${esc(b.title)}</h2><div class="muted">${esc(b.author)} · giọng ${esc(voiceName(b.voice))}</div></div>
+    ${isRun ? `<div><div class="big">${b.done} <span style="font-size:24px;color:var(--muted);font-weight:500">trên ${b.chapters} chương</span></div>
+        <div class="bar big" style="margin:14px 0 8px"><i style="width:${pct}%"></i></div>
+        <div class="muted">${state.paused ? "Đang tạm dừng. Bấm “Tiếp tục” để tạo tiếp." : `Còn khoảng <b>${Math.floor(b.hours)} giờ ${Math.round((b.hours % 1) * 60)} phút</b>. Bạn có thể để máy chạy qua đêm, tool sẽ báo khi xong.`}</div></div>
+      <div class="row"><button class="btn primary" data-act="togglePause">${state.paused ? "▶ Tiếp tục" : "❚❚ Tạm dừng"}</button>
+        ${dlMenu()}<button class="btn danger" data-act="toast" data-msg="Đã dừng việc đang tạo. Các phần đã tạo vẫn được giữ.">Dừng hẳn</button></div>`
+      : `<div><div class="big">Đã xong ${b.chapters} chương 🎉</div><div class="muted">Bạn có thể nghe lại từng chương hoặc tải về.</div></div>
+      <div class="row">${dlMenu(true)}<button class="btn" data-act="toast" data-msg="Mở từng chương để chỉnh (bản thật).">Chỉnh sửa</button></div>`}
+  </div>`;
+  const tabs = `<div class="tabs" role="tablist">${[["chuong", "Các chương"], ["ten", "Cách đọc tên riêng"], ["caidat", "Cài đặt"]].map(([k, t]) => `<button class="${state.bookTab === k ? "on" : ""}" data-act="bookTab" data-k="${k}">${t}</button>`).join("")}</div>`;
+  return head + `<div class="stack">${staleBanner}${top}</div>` + tabs + (state.bookTab === "chuong" ? chapTab(isRun) : state.bookTab === "ten" ? namesTab() : settingsTab());
+}
+function dlMenu(primary) {
+  return `<span class="menu"><button class="btn ${primary ? "primary" : ""}" data-act="menu" data-m="dl">⬇ Tải về ▾</button>
+    <div class="pop hidden" id="m-dl"><button data-act="toast" data-msg="Đang gói các chương thành file zip…"><b>Từng chương (MP3)</b><small>Một file zip, mỗi chương một file</small></button>
+      <button data-act="toast" data-msg="Đang ghép thành một file có mục lục…"><b>Một file có mục lục</b><small>Nghe liền mạch, bấm nhảy tới chương bất kỳ (.m4b)</small></button>
+      <button data-act="toast" data-msg="Chọn khoảng chương cần tải (bản thật)."><b>Chỉ một số chương…</b><small>Ví dụ chương 1 đến 20</small></button></div></span>`;
+}
+function chapTab(isRun) {
+  const f = state.chFilter, total = isRun ? 171 : 24;
+  const rows = [];
+  const mk = (n, st) => ({ n, st });
+  for (let n = 1; n <= 8; n++) rows.push(mk(n, n <= 6 ? "done" : n === 7 ? "stale" : "done"));
+  if (isRun) { rows.push(mk(12, "run")); rows.push(mk(13, "wait")); rows.push(mk(14, "wait")); }
+  const titles = ["Bức tranh tức giận (1)", "Bức tranh tức giận (2)", "Người lạ trong đêm", "Vụ án ở khu nhà cũ", "Dấu vết trên tuyết", "Chiếc điện thoại", "Cuộc gặp lúc nửa đêm", "Bóng người trong sương", "", "", "", "Lời khai đầu tiên", "Hiện trường thứ hai", "Người chứng kiến"];
+  const stLabel = { done: "Đã xong", stale: "Cần tạo lại (bạn đã đổi cài đặt)", run: "Đang tạo… 60%", wait: "Đang chờ" };
+  const shown = rows.filter((r) => f === "all" || (f === "done" && r.st === "done") || (f === "wait" && (r.st === "wait" || r.st === "run")) || (f === "stale" && r.st === "stale"));
+  return `<div class="chips" style="margin-bottom:14px">${[["all", "Tất cả"], ["done", "Đã xong"], ["wait", "Đang chờ"], ["stale", "Cần tạo lại"]].map(([k, t]) => `<button class="chip ${f === k ? "on" : ""}" data-act="chFilter" data-k="${k}">${t}</button>`).join("")}</div>
+    <div class="chlist">${shown.map((r) => `<div class="chrow"><div class="name"><b>Chương ${r.n}</b> · ${esc(titles[r.n - 1] || "…")}<div class="sub" style="${r.st === "stale" ? "color:var(--warn)" : ""}">${stLabel[r.st]}</div></div>
+      ${r.st === "done" || r.st === "stale" ? `<button class="play" data-play="Chương ${r.n}: ${esc(titles[r.n - 1])}|${esc(BOOKS["la-phi"].title)}|180" aria-label="Nghe">▶</button><span class="menu"><button class="btn small" data-act="menu" data-m="c${r.n}">⋯</button>
+        <div class="pop hidden" id="m-c${r.n}"><button data-act="toast" data-msg="Đã xếp chương ${r.n} vào hàng tạo lại.">Tạo lại chương này</button><button data-act="toast" data-msg="Hiện văn bản chương đã dọn sạch (bản thật).">Xem chữ của chương</button><button data-act="toast" data-msg="Đang tải chương ${r.n}…">Tải chương này (MP3)</button></div></span>` : r.st === "run" ? `<div style="width:120px"><div class="bar"><i style="width:60%"></i></div></div>` : `<button class="btn small" data-act="toast" data-msg="Chương ${r.n} sẽ được tạo trước.">Tạo trước</button>`}</div>`).join("")}
+      <div class="chrow skip">… còn ${total - shown.length} chương nữa</div></div>
+    <p class="hint">Mỗi chương có nút ▶ để nghe đoạn đầu ngay trong lúc đang tạo các chương khác.</p>`;
+}
+function namesTab() {
+  return `<div class="card flat"><h3 style="font-size:20px">Cách đọc tên riêng</h3><p class="muted">Nếu tool đọc sai một tên (ví dụ “Tiêu Viêm”), thêm vào đây để tool đọc đúng ở mọi chương. Sau khi sửa, các chương đã tạo sẽ được đánh dấu “cần tạo lại”.</p>
+    <div class="chlist">${[["Tiêu Viêm", "đọc là", "Tiêu Diễm"], ["Đấu Khí", "dừng một nhịp trước khi đọc", ""], ["Vân Lam Tông", "đọc bình thường, dừng một nhịp sau", ""]].map(([a, b, c]) => `<div class="chrow"><div class="name"><b>${a}</b> <span class="muted">— ${b} ${c ? `“${c}”` : ""}</span></div><button class="play" data-play="${a}|Nghe thử cách đọc|4" aria-label="Nghe">▶</button><button class="btn small" data-act="toast" data-msg="Mở ô sửa cách đọc (bản thật).">Sửa</button></div>`).join("")}</div>
+    <div class="row" style="margin-top:12px"><button class="btn" data-act="toast" data-msg="Mở ô thêm một tên (bản thật).">＋ Thêm tên</button></div></div>
+    <div class="card flat" style="margin-top:16px"><h3 style="font-size:20px">Tìm tên riêng trong truyện</h3><p class="muted">Tool tìm các tên xuất hiện nhiều lần để bạn nghe thử và thêm nhanh.</p>
+      <button class="btn primary" data-act="scan">Tìm tên riêng</button>
+      <div id="scanOut" class="chlist hidden" style="margin-top:14px">${[["Tiêu Viêm", 412, ""], ["Viêm", 120, "child"], ["Vân Lam Tông", 188, ""], ["Dược Lão", 96, ""]].map(([a, n, c]) => `<div class="chrow" ${c ? 'style="margin-left:26px;background:var(--surface-2)"' : ""}><div class="name"><b>${a}</b> <span class="muted">· ${n} lần${c ? " · một phần của “Tiêu Viêm”" : ""}</span><div class="sub">“Hắn nhìn ${a} rồi cười.”</div></div><button class="play" data-play="${a}|Nghe thử câu ví dụ|4" aria-label="Nghe">▶</button><button class="btn small" data-act="toast" data-msg="Đã thêm “${a}” vào cách đọc tên riêng.">＋ Thêm</button></div>`).join("")}</div></div>`;
+}
+function settingsTab() {
+  return `<div class="card flat stack"><div class="two"><div><label class="field">Tên truyện</label><input type="text" value="Cảnh Sát Hình Sự La Phi" /></div><div><label class="field">Tác giả</label><input type="text" value="Lôi Mễ" /></div></div>
+    <div><label class="field">Giọng kể</label><select><option>Hải Đăng — Giọng trên máy</option><option>Trúc Ly — Giọng trên máy</option><option>Hoài My — Giọng online</option></select></div>
+    <label class="switch"><input type="checkbox" /> Lời thoại đọc bằng giọng khác</label>
+    <label class="check"><input type="checkbox" checked /><span>Đọc tên chương ở đầu mỗi chương</span></label>
+    <div class="row"><button class="btn primary" data-act="toast" data-msg="Đã lưu. 12 chương cần tạo lại để theo cài đặt mới." data-stale="1">Lưu cài đặt</button></div>
+    <details class="adv"><summary>Nâng cao</summary><div class="adv-body stack">
+      <div class="two"><div><label class="field">Nghỉ giữa các đoạn văn (giây)</label><input type="number" value="0.6" step="0.1" /></div><div><label class="field">Nghỉ sau tên chương (giây)</label><input type="number" value="1.2" step="0.1" /></div></div>
+      <div><b>Chia chương lại / Dọn văn bản</b><p class="muted">Mở lại trình kiểm tra như lúc thêm truyện. Việc này sẽ làm các chương đã tạo phải tạo lại.</p><button class="btn" data-act="toast" data-msg="Mở lại bước Kiểm tra (bản thật).">Mở trình kiểm tra</button></div>
+      <div><b>Dung lượng đang dùng: 3,2 GB</b><p class="muted">Có thể giải phóng 2,1 GB từ các chương đã tải về (vẫn giữ file MP3 đã tải).</p><button class="btn" data-act="confirmFree">Giải phóng chỗ trống</button></div>
+      <div><b>Quy tắc dọn riêng</b><p class="muted">Dành cho người rành: thay một mẫu chữ bằng chữ khác (regex).</p><button class="btn" data-act="toast" data-msg="Mở bảng quy tắc riêng (bản thật).">Quản lý quy tắc riêng</button></div>
+      <div><b>Cách đọc tên riêng dùng chung cho mọi truyện</b><button class="btn" data-act="toast" data-msg="Mở bảng tên dùng chung (bản thật).">Mở</button></div>
+    </div></details></div>`;
+}
+
+/* ───────────── đọc văn bản ───────────── */
+function reader() {
+  const r = state.read;
+  const script = `[Lan]: Chào anh, hôm nay anh khoẻ không?\n[Minh]: Anh khoẻ, cảm ơn em.\n\n[Lan]: Vậy thì tốt quá, mình đi dạo nhé.`;
+  const single = `Xin chào! Đây là công cụ chuyển văn bản thành giọng nói tiếng Việt.`;
+  return `<div class="crumb"><a data-go="/">Trang chính</a> › <span>Đọc văn bản</span></div>
+  <div class="row" style="justify-content:space-between"><h2>Đọc văn bản</h2><label class="switch"><input type="checkbox" data-act="toggleMulti" ${r.multi ? "checked" : ""} /> Nhiều người đọc</label></div>
+  <p class="lead">${r.multi ? "Viết lời của từng người theo dạng [Tên]: lời nói. Rồi chọn giọng cho mỗi người." : "Dán hoặc gõ văn bản vào ô bên dưới, rồi bấm Đọc."}</p>
+  <div class="reader">
+    <div><textarea id="rText" spellcheck="false" aria-label="${r.multi ? "Kịch bản" : "Văn bản cần đọc"}">${r.multi ? script : single}</textarea>
+      <div class="row" style="margin-top:8px;justify-content:space-between"><span class="muted">${r.multi ? "Mỗi người một dòng. Dòng trống để nghỉ lâu hơn." : "Gõ Ctrl + Enter để đọc nhanh."}</span>
+        <details class="adv" style="border:0;margin:0;padding:0"><summary>Thêm cảm xúc, chỗ nghỉ</summary><div class="adv-body chips"><button class="chip">Nghỉ 1 giây</button><button class="chip">Xuống đoạn</button><button class="chip">[cười]</button><button class="chip">[thở dài]</button></div></details></div></div>
+    ${r.multi ? `<div class="card flat"><h3 style="font-size:20px;margin-bottom:6px">Ai đọc giọng nào?</h3>
+        ${["Lan", "Minh"].map((n, i) => `<div class="castrow"><b>${n}</b><select>${VOICES.filter((v) => !v.mix).map((v) => `<option ${(i ? "nm" : "tl") === v.id ? "selected" : ""}>${esc(v.name)} — ${kindLabel(v.kind)}</option>`).join("")}</select><button class="play" data-play="${n}|Nghe thử giọng|5" aria-label="Nghe thử">▶</button></div>`).join("")}
+        <div class="hint">Tool tự tìm các tên trong kịch bản. Gõ thêm một [Tên] mới thì sẽ có thêm một dòng ở đây.</div></div>`
+      : `<div class="card flat"><div class="two"><div><label class="field">Giọng đọc</label><div class="seg" style="margin-bottom:10px">${["máy", "online"].map((k) => `<button class="${r.mode === k ? "on" : ""}" data-act="readMode" data-k="${k}">${kindLabel(k)}</button>`).join("")}</div>
+          <div class="row" style="flex-wrap:nowrap"><select style="flex:1">${VOICES.filter((v) => v.kind === r.mode && !v.mix).map((v) => `<option>${(v.fav ? "♥ " : "") + esc(v.name)}</option>`).join("")}</select><button class="play" data-play="Nghe thử giọng|Giọng đã chọn|5" aria-label="Nghe thử">▶</button></div>
+          <div class="hint">${r.mode === "online" ? "Đọc nhanh nhưng cần có mạng." : "Tự nhiên hơn. Lần đầu dùng có thể phải chờ tải thêm vài phút."}</div></div>
+        <div><label class="field">Đọc nhanh hay chậm?</label><div class="seg">${[["Chậm", 0.8], ["Vừa", 1], ["Nhanh", 1.3]].map(([t, v]) => `<button class="${r.speed === v ? "on" : ""}" data-act="readSpeed" data-v="${v}">${t}</button>`).join("")}</div></div></div></div>`}
+    <div class="row"><button class="btn primary" data-act="readGo">${r.multi ? "Tạo audio" : "Đọc"}</button></div>
+    ${r.done ? readResult(r.multi) : ""}
+    <details class="adv"><summary>Nâng cao</summary><div class="adv-body stack">
+      ${r.multi ? `<div class="two"><div><label class="field">Nghỉ giữa các câu thoại (mili-giây)</label><input type="number" value="350" /></div><div><label class="field">Nghỉ giữa các đoạn (mili-giây)</label><input type="number" value="800" /></div></div>
+        <div class="row"><select style="max-width:260px"><option>— Dự án đã lưu —</option><option>Kịch bản chương 3</option></select><button class="btn small" data-act="toast" data-msg="Đã mở dự án.">Mở</button><button class="btn small" data-act="toast" data-msg="Đã lưu dự án.">Lưu thành dự án</button></div>`
+      : `<div><label class="field">Cao độ giọng online</label><input type="range" min="-50" max="50" value="0" style="width:100%;accent-color:var(--accent)" /></div>
+        <div><label class="field">Dùng giọng từ file ghi âm (chỉ lần này)</label><input type="file" accept="audio/*" /><div class="hint">Nếu muốn dùng lại về sau, hãy thêm vào “Giọng của tôi”.</div></div>`}
+      <label class="check"><input type="checkbox" checked /><span>Tự đọc số, ngày tháng, đơn vị cho đúng (chuẩn hoá văn bản)</span></label>
+    </div></details>
+  </div>`;
+}
+function readResult(multi) {
+  return `<div class="card"><div class="audiocard"><button class="play" data-play="${multi ? "Hội thoại Lan – Minh" : "Xin chào! Đây là công cụ…"}|Vừa tạo xong|${multi ? 24 : 8}" aria-label="Nghe">▶</button><div style="flex:1"><b>Đã đọc xong</b><div class="muted">${multi ? "3 dòng · 24 giây" : "8 giây"}</div></div><button class="btn small" data-act="toast" data-msg="Đang tải file MP3…">Tải về (MP3)</button></div>
+    ${multi ? `<div style="margin-top:12px">${[["Lan", "Chào anh, hôm nay anh khoẻ không?"], ["Minh", "Anh khoẻ, cảm ơn em."], ["Lan", "Vậy thì tốt quá, mình đi dạo nhé."]].map(([w, t], i) => `<div class="dline"><b>${w}</b><span>${t}</span><span class="row" style="flex-wrap:nowrap"><button class="play" data-play="${w}: ${esc(t)}|Dòng ${i + 1}|4" aria-label="Nghe dòng này">▶</button><button class="btn small" data-act="toast" data-msg="Đã đọc lại dòng ${i + 1} với một cách đọc khác.">Đọc lại dòng này</button></span></div>`).join("")}</div>` : ""}</div>`;
+}
+
+/* ───────────── giọng của tôi ───────────── */
+function voices() {
+  const { q, f } = state.lib;
+  const list = VOICES.filter((v) => (!q || (v.name + v.note).toLowerCase().includes(q.toLowerCase())) &&
+    (f === "all" || (f === "fav" && v.fav) || (f === "mine" && v.mine) || (f === "nam" && v.gender === "Nam") || (f === "nu" && v.gender === "Nữ")));
+  return `<div class="crumb"><a data-go="/">Trang chính</a> › <span>Giọng của tôi</span></div>
+  <div class="row" style="justify-content:space-between"><h2>Giọng của tôi</h2><div class="row"><button class="btn primary" data-act="addVoice">🎙️ Thêm giọng từ file ghi âm</button><button class="btn" data-act="mixVoice">🎚️ Pha giọng mới</button></div></div>
+  <p class="lead">Bấm ▶ để nghe thử. Bấm ♥ để đánh dấu giọng bạn hay dùng.</p>
+  <div class="row" style="margin-bottom:16px"><input type="search" id="vq" placeholder="Tìm giọng theo tên…" value="${esc(q)}" style="max-width:320px" />
+    <div class="chips">${[["all", "Tất cả"], ["fav", "Yêu thích"], ["mine", "Của tôi"], ["nam", "Nam"], ["nu", "Nữ"]].map(([k, t]) => `<button class="chip ${f === k ? "on" : ""}" data-act="libFilter" data-k="${k}">${t}</button>`).join("")}</div></div>
+  <div class="vgrid">${list.map((v) => `<div class="voice">
+    <div class="top"><b>${v.mix ? "🎚️ " : v.mine ? "🎙️ " : ""}${esc(v.name)}</b><button class="fav ${v.fav ? "on" : ""}" data-act="fav" data-id="${v.id}" aria-label="Yêu thích">${v.fav ? "♥" : "♡"}</button></div>
+    <div class="meta">${[v.gender, v.region && "giọng " + v.region, kindLabel(v.kind)].filter(Boolean).join(" · ")}</div><div class="meta">${esc(v.note)}</div>
+    <div class="acts"><button class="play" data-play="${esc(v.name)}|Nghe thử giọng|8" aria-label="Nghe thử">▶</button><button class="btn small" data-act="useVoice" data-id="${v.id}">Dùng để đọc</button>
+      ${v.mine ? `<span class="menu"><button class="btn small" data-act="menu" data-m="v${v.id}">⋯</button><div class="pop hidden" id="m-v${v.id}"><button data-act="addVoice">Sửa tên, ghi chú</button><button class="danger" data-act="toast" data-msg="Đã xoá giọng. Các sách nói đã tạo vẫn giữ nguyên.">Xoá giọng này</button></div></span>` : ""}</div></div>`).join("") || `<p class="muted">Không có giọng nào khớp.</p>`}</div>`;
+}
+
+/* ───────────── hộp thoại, ngăn kéo, thông báo ───────────── */
+function modal(html) { $("#modalHost").innerHTML = `<div class="scrim" data-act="closeModal"></div><div class="modal" role="dialog" aria-modal="true">${html}</div>`; }
+function closeModal() { $("#modalHost").innerHTML = ""; }
+function toast(msg, err) {
+  $("#toastHost").innerHTML = `<div class="toast" ${err ? "" : 'style="border-left-color:var(--accent)"'} role="status">${msg}</div>`;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { $("#toastHost").innerHTML = ""; }, err ? 12000 : 3500);
+}
+function openHistory(on = true) {
+  const d = $("#drawer"); d.classList.toggle("open", on); $("#scrim").classList.toggle("hidden", !on); d.setAttribute("aria-hidden", String(!on));
+  if (!on) return;
+  d.innerHTML = `<header><h3 style="flex:1">Lịch sử</h3><button class="btn small" data-act="toast" data-msg="Đã xoá lịch sử.">Xoá tất cả</button><button class="btn small" data-act="closeHistory">Đóng</button></header>
+  <div class="body"><p class="muted">Những lần đọc gần đây (giữ 50 bản mới nhất).</p>${[["Hôm nay 14:32", "Giọng trên máy · Hải Đăng", "Xin chào! Đây là công cụ chuyển văn bản thành giọng nói tiếng Việt."], ["Hôm nay 10:05", "Nhiều người · Lan, Minh", "[Lan]: Chào anh, hôm nay anh khoẻ không?"], ["Hôm qua 21:18", "Giọng online · Hoài My", "Tin nhanh: hôm nay trời nắng đẹp, nhiệt độ từ 22 đến 31 độ."]].map(([t, v, x]) => `<div class="hitem"><div class="muted">${t} · ${v}</div><div class="txt">${x}</div><div class="row"><button class="play" data-play="${esc(x.slice(0, 30))}…|${v}|14" aria-label="Nghe">▶</button><button class="btn small" data-go="/doc" data-act="closeHistory">Dùng lại</button><button class="btn small" data-act="toast" data-msg="Đang tải…">Tải về</button><button class="btn small danger" data-act="toast" data-msg="Đã xoá.">Xoá</button></div></div>`).join("")}</div>`;
+}
+function settingsModal() {
+  modal(`<h3>Cài đặt chung</h3><div class="stack" style="--gap:16px">
+    <label class="switch"><input type="checkbox" checked /> Giữ máy không đi ngủ khi đang tạo sách nói</label>
+    <label class="switch"><input type="checkbox" checked /> Báo cho tôi khi tạo xong (hiện thông báo trên màn hình)</label>
+    <div><label class="field">Giọng trên máy ưu tiên</label><select><option>Tự chọn cho hợp với máy (nên dùng)</option><option>Nhanh hơn, hơi kém tự nhiên</option><option>Tự nhiên nhất, chậm hơn</option></select><div class="hint">Máy của bạn có hỗ trợ chạy nhanh, tool đã tự bật.</div></div>
+    <details class="adv" style="margin:0"><summary>Nâng cao</summary><div class="adv-body stack"><div class="muted">Đang dùng: VieNeu · int8 (precision tự chọn). Bộ nhớ đệm (cache): 412 MB / 1024 MB. Thư mục dữ liệu: data/</div><button class="btn small" data-act="toast" data-msg="Đã dọn bộ nhớ đệm.">Dọn bộ nhớ đệm</button></div></details>
+    <div class="row end"><button class="btn primary" data-act="closeModal">Xong</button></div></div>`);
+}
+function addVoiceModal() {
+  modal(`<h3>Thêm giọng từ file ghi âm</h3><div class="stack" style="--gap:14px"><div><label class="field">Tên giọng</label><input type="text" placeholder="Ví dụ: Giọng của mẹ" /></div>
+    <div class="drop" style="padding:28px" data-act="toast" data-msg="Đã chọn file ghi âm (bản mẫu).">Kéo file ghi âm vào đây, hoặc bấm để chọn<div class="muted">Nên là giọng rõ, ít tiếng ồn, dài 3–10 giây</div></div>
+    <div class="row"><button class="btn" data-act="toast" data-msg="Đang ghi âm… (bản thật sẽ xin quyền dùng micro)">● Ghi âm ngay</button></div>
+    <label class="check"><input type="checkbox" /><span>Tôi là chủ giọng nói này hoặc đã được người đó đồng ý</span></label>
+    <details class="adv" style="margin:0"><summary>Thêm thông tin (không bắt buộc)</summary><div class="adv-body two"><div><label class="field">Nam hay nữ</label><select><option>Không rõ</option><option>Nam</option><option>Nữ</option></select></div><div><label class="field">Giọng vùng nào</label><select><option>Không rõ</option><option>Bắc</option><option>Trung</option><option>Nam</option></select></div></div></details>
+    <div class="row end"><button class="btn" data-act="closeModal">Huỷ</button><button class="btn primary" data-act="toast" data-msg="Đã thêm giọng vào “Giọng của tôi”." data-close="1">Lưu giọng</button></div></div>`);
+}
+function mixModal() {
+  modal(`<h3>Pha giọng mới</h3><p class="muted">Chọn hai giọng rồi kéo thanh để pha. Càng gần giọng nào thì càng giống giọng đó.</p><div class="stack" style="--gap:14px">
+    <div class="two"><div><label class="field">Giọng thứ nhất</label><select>${VOICES.filter((v) => !v.mix).map((v) => `<option ${v.id === "hd" ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div><div><label class="field">Giọng thứ hai</label><select>${VOICES.filter((v) => !v.mix).map((v) => `<option ${v.id === "tl" ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></div></div>
+    <div><div class="row" style="justify-content:space-between"><span>Giống Hải Đăng</span><span>Giống Trúc Ly</span></div><input type="range" min="0" max="100" value="60" id="mixR" style="width:100%;accent-color:var(--accent)" /><div class="muted" style="text-align:center" id="mixP">60% Hải Đăng · 40% Trúc Ly</div></div>
+    <div class="row"><button class="btn" data-play="Giọng pha|Nghe thử|6">▶ Nghe thử</button><label class="check"><input type="checkbox" checked /><span>Tự nghe thử khi tôi thả thanh kéo</span></label></div>
+    <div><label class="field">Đặt tên cho giọng này</label><input type="text" value="Hải Đăng × Trúc Ly" /></div>
+    <div class="row end"><button class="btn" data-act="closeModal">Huỷ</button><button class="btn primary" data-act="toast" data-msg="Đã lưu giọng pha vào “Giọng của tôi”." data-close="1">Lưu giọng</button></div></div>`);
+  const r = $("#mixR"); r.oninput = () => { $("#mixP").textContent = `${r.value}% Hải Đăng · ${100 - r.value}% Trúc Ly`; };
+}
+function errorToast() {
+  toast(`<b>Giọng online đang bận, đã thử lại 3 lần.</b><div>Thử lại sau ít phút, hoặc chọn <a data-go="/doc" style="cursor:pointer">giọng trên máy</a> (không cần mạng).</div>
+    <div class="row" style="margin-top:10px"><button class="btn small" data-act="toast" data-msg="Đang thử lại…">Thử lại</button></div>
+    <details class="notice" style="padding:0;margin:8px 0 0"><summary>Xem chi tiết</summary><code style="font-size:13px;word-break:break-all">edge-tts: 502 No audio was received (3 lần thử)</code></details>`, true);
+}
+
+/* ───────────── sự kiện chung ───────────── */
+document.addEventListener("click", (e) => {
+  const playBtn = e.target.closest("[data-play]");
+  if (playBtn) { e.stopPropagation(); const [t, s, d] = playBtn.dataset.play.split("|"); play(t, s, +d || 30); return; }
+  if (!e.target.closest(".menu")) document.querySelectorAll(".menu .pop").forEach((p) => p.classList.add("hidden"));
+  const el = e.target.closest("[data-act],[data-go]");
+  if (!el) return;
+  const a = el.dataset.act, w = state.wiz;
+  if (el.dataset.go && !(a && el.tagName === "INPUT")) { if (a === "closeHistory") openHistory(false); go(el.dataset.go); if (!a) return; }
+  switch (a) {
+    case "openHistory": openHistory(true); break;
+    case "closeHistory": openHistory(false); break;
+    case "openSettings": settingsModal(); break;
+    case "closeModal": closeModal(); break;
+    case "newBook": Object.assign(state.wiz, { step: 1, file: false, checked: false, fix: false, sample: 0 }); go("/sach/them"); break;
+    case "pickFile": w.file = true; render(); break;
+    case "clearFile": w.file = false; render(); break;
+    case "wizNext": w.title = $("#wTitle")?.value || w.title; w.step = Math.min(3, w.step + 1); render(); break;
+    case "wizBack": w.step = Math.max(1, w.step - 1); render(); break;
+    case "toggleFix": w.fix = !w.fix; render(); break;
+    case "pickTpl": w.tpl = +el.dataset.i; render(); break;
+    case "showAll": toast("Hiện đủ 171 chương, mỗi chương có tên và số chữ (bản thật)."); break;
+    case "pickVoice": if (!e.target.closest(".play")) { w.voice = el.dataset.id; render(); } break;
+    case "toggleDlg": w.dlg = el.checked; render(); break;
+    case "toggleTrial5": w.trial5 = el.checked; break;
+    case "trial": w.sample = 5; render(); { const t = setInterval(() => { w.sample = Math.min(100, w.sample + 15); if (route().includes("them")) render(); if (w.sample >= 100) { clearInterval(t); play(`Chương 1 (nghe thử) — ${voiceName(w.voice)}`, "Nghe thử 1 phút", 60); } }, 500); } break;
+    case "startBook": state.running = true; state.paused = false; go("/sach/truyen/la-phi"); toast(w.trial5 ? "Bắt đầu tạo 5 chương đầu. Nghe thử xong bạn có thể tạo tiếp." : "Bắt đầu tạo sách nói. Bạn có thể tắt trang này, tool vẫn chạy."); break;
+    case "togglePause": state.paused = !state.paused; render(); break;
+    case "bookTab": state.bookTab = el.dataset.k; render(); break;
+    case "chFilter": state.chFilter = el.dataset.k; render(); break;
+    case "menu": { const m = $("#m-" + el.dataset.m); const open = m.classList.contains("hidden"); document.querySelectorAll(".menu .pop").forEach((p) => p.classList.add("hidden")); m.classList.toggle("hidden", !open); e.stopPropagation(); break; }
+    case "scan": $("#scanOut").classList.remove("hidden"); break;
+    case "confirmFree": modal(`<h3>Giải phóng 2,1 GB?</h3><p>Tool sẽ xoá bản gốc của các chương đã tải về. File MP3 bạn đã tải không bị ảnh hưởng.</p><p class="muted">Sau đó muốn chỉnh sửa chương nào, bạn cần tạo lại chương đó.</p><div class="row end"><button class="btn" data-act="closeModal">Để lại</button><button class="btn primary" data-act="toast" data-msg="Đã giải phóng 2,1 GB." data-close="1">Giải phóng</button></div>`); break;
+    case "toggleMulti": state.read.multi = el.checked; state.read.done = false; render(); break;
+    case "readMode": state.read.mode = el.dataset.k; render(); break;
+    case "readSpeed": state.read.speed = +el.dataset.v; render(); break;
+    case "readGo": state.read.done = true; render(); play(state.read.multi ? "Hội thoại Lan – Minh" : "Xin chào! Đây là công cụ…", "Vừa tạo xong", state.read.multi ? 24 : 8); break;
+    case "libFilter": state.lib.f = el.dataset.k; render(); break;
+    case "fav": { const v = VOICES.find((x) => x.id === el.dataset.id); v.fav = !v.fav; render(); break; }
+    case "useVoice": state.read.voice = el.dataset.id; state.read.mode = VOICES.find((x) => x.id === el.dataset.id).kind; go("/doc"); toast(`Đã chọn giọng ${voiceName(el.dataset.id)} để đọc.`); break;
+    case "addVoice": addVoiceModal(); break;
+    case "mixVoice": mixModal(); break;
+    case "toast": toast(el.dataset.msg || "Xong."); if (el.dataset.close) closeModal(); if (el.dataset.stale) { state.stale = true; } break;
+    case "demoError": errorToast(); break;
+    case "demoRunning": state.running = !state.running; render(); break;
+    case "demoStale": state.stale = !state.stale; go("/sach/truyen/la-phi"); state.bookTab = "chuong"; render(); break;
+  }
+});
+$("#scrim").onclick = () => openHistory(false);
+document.addEventListener("input", (e) => { if (e.target.id === "vq") { state.lib.q = e.target.value; const pos = e.target.selectionStart; render(); const i = $("#vq"); i.focus(); i.setSelectionRange(pos, pos); } });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeModal(); openHistory(false); } });
+render();
+</script>
+</body>
+</html>

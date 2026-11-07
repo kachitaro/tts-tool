@@ -3,6 +3,15 @@
 Web tool chuyển văn bản thành giọng nói tiếng Việt: đọc văn bản, thư viện giọng (nhân bản, yêu thích),
 trộn hai giọng thành giọng mới, và hội thoại nhiều người. Chạy trên máy bạn, giao diện một trang HTML thuần.
 
+## Giao diện
+
+Giao diện đang được làm lại cho dễ dùng (tài liệu thiết kế: `docs/ux/` — kiểm kê, sơ đồ điều hướng, bản mẫu `prototype.html`). Không có bước build: HTML + CSS + ES module thuần.
+
+- `static/index.html` + `static/css/{tokens,base,components}.css` + `static/js/` (`app.js`, `router.js`, `player.js`, `errors.js`, `voicepicker.js`, `views/`…). Màu và cỡ chữ chỉ nằm trong `tokens.css` (sáng / tối theo hệ thống).
+- Đã làm lại: khung (thanh trên cùng có chỉ báo "Đang tạo…", trình phát dính đáy, Lịch sử, Cài đặt chung), màn chính, **Đọc văn bản** (gồm "Nhiều người đọc"), **Giọng đọc**, danh sách sách nói. Lỗi hiện bằng lời thường kèm cách khắc phục, chi tiết kỹ thuật trong "Xem chi tiết" (`errors.js`).
+- Chưa làm lại (các bước sau): thêm truyện / bảng điều khiển sách nói, thêm và pha giọng. Các màn này mở ở **giao diện cũ** `/legacy` (một file, đủ mọi tính năng) nên không mất tính năng nào.
+- `GET /api/overview` (chỉ đọc): trạng thái hàng đợi + danh sách truyện kèm số chương đã xong + truyện đang tạo, để vẽ thanh trên cùng và màn chính bằng một request.
+
 ## Tính năng theo engine
 
 | | **Nhanh** (edge-tts) | **Chất lượng cao** (VieNeu-TTS) |
@@ -72,6 +81,7 @@ Mọi lỗi trả `{"error": "..."}` kèm mã HTTP tương ứng.
 
 | | |
 |---|---|
+| `GET /api/overview` | Chỉ đọc, gộp cho màn chính: `queue` (trạng thái hàng đợi), `books` (kèm `done`, `queued`, `running`), `current` (truyện đang tạo + `estimate_seconds`, hoặc `null`) |
 | `GET /api/engines` | Engine, trạng thái và `capabilities` (`clone`, `pitch`, `emotion_tags`, `mix`, `normalize`) |
 | `GET /api/voices[?engine=]`, `GET /api/voices/{engine}` | Giọng (preset + thư viện) kèm `source` (`preset`/`clone`/`mix`), `favorite`, `usable` |
 | `POST /api/tts` | `text`, `engine`, `voice`, `speed` (−50…200 %), `pitch`, `normalize`, `ref_audio`, `save_as` + `consent` |

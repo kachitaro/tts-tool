@@ -21,6 +21,7 @@ import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import bookq
@@ -140,9 +141,58 @@ async def engine_voices(e) -> list[dict]:
 
 # ──────────────────────────────── API ────────────────────────────────────
 
+class NoCacheStatic(StaticFiles):
+    """CSS / JS của giao diện: luôn hỏi lại server (có ETag) để sửa file là thấy ngay, không dính bản cũ trong trình duyệt."""
+
+    def file_response(self, *args, **kwargs):
+        r = super().file_response(*args, **kwargs)
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
+
+app.mount("/css", NoCacheStatic(directory=ROOT / "static" / "css"), name="css")
+app.mount("/js", NoCacheStatic(directory=ROOT / "static" / "js"), name="js")
+
+
 @app.get("/")
 def index():
-    return FileResponse(ROOT / "static" / "index.html")
+    return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/legacy")
+def legacy():
+    """Giao diện cũ (một file): các màn chưa được làm lại (Sách nói, thêm / pha giọng) vẫn dùng được ở đây."""
+    return FileResponse(ROOT / "static" / "legacy.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/overview")
+def overview():
+    """Chỉ đọc, gộp dữ liệu có sẵn cho màn chính và thanh trên cùng bằng 1 request:
+    queue = trạng thái hàng đợi tạo sách nói; books = mỗi truyện kèm số chương đã xong; current = truyện đang tạo (nếu có) + ước tính."""
+    q = bookq.Q.status()
+    queued_by_book: dict[str, int] = {}
+    for it in bookq.Q.s["items"]:
+        queued_by_book[it["book"]] = queued_by_book.get(it["book"], 0) + 1
+    items = []
+    for b in books.list_books():
+        done = 0
+        if b["status"] == "ready":
+            done = sum(1 for c in books.list_chapters(b["id"]) if c.get("status") in ("done", "exported"))
+        items.append({**b, "done": done, "queued": queued_by_book.get(b["id"], 0),
+                      "running": bool(q["running"] and q["running"]["book"] == b["id"])})
+    current = None
+    active = (q["running"] or {}).get("book") or next(iter(queued_by_book), None)
+    if active and (q["running"] or queued_by_book):
+        book = next((i for i in items if i["id"] == active), None)
+        if book:
+            try:
+                bs = bookq.Q.book_status(active, books.get(active)["voice"]["engine"])
+            except books.NotFound:
+                bs = {}
+            current = {"book": active, "title": book["title"], "chapters": book["chapters"], "done": book["done"],
+                       "chapter": (q["running"] or {}).get("n"), "paused": q["paused"], "state": q["state"],
+                       "estimate_seconds": bs.get("estimate_seconds"), "note": q["note"]}
+    return {"queue": q, "books": items, "current": current}
 
 
 @app.get("/api/engines")

@@ -160,6 +160,10 @@ def t_run_and_kill9() -> None:
     assert r["added"] == [1, 2, 3] and r["state"] in ("running", "idle"), r
     wait_for(lambda: running_at(2, 1), what="chương 2 xong đoạn đầu")
     assert statuses()[0] == "done"
+    o = client.get("/api/overview").json()                                   # đang chạy: current khớp hàng đợi
+    cur = o["current"]
+    assert cur and cur["book"] == state["id"] and cur["chapters"] == 3 and cur["done"] >= 1 and cur["chapter"] == 2 and cur["state"] == "running", cur
+    assert next(b for b in o["books"] if b["id"] == state["id"])["running"] is True
     state["c1_mtime"] = (DATA / "books" / state["id"] / "audio" / "0001.flac").stat().st_mtime_ns
     stop_server(signal.SIGKILL, 20)
     saved = json.loads((DATA / "queue.json").read_text())

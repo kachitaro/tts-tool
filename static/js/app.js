@@ -1,0 +1,39 @@
+// Khởi động giao diện: khung (thanh trên cùng, trình phát, ngăn kéo lịch sử), điều hướng, trạng thái chung.
+import { $, h, fmtLeft } from "./dom.js";
+import { route, startRouter, go } from "./router.js";
+import { initPlayer } from "./player.js";
+import { overview, refreshOverview } from "./overview.js";
+import { openHistory, closeHistory } from "./history.js";
+import { openSettings } from "./settings.js";
+import { mountHome } from "./views/home.js";
+import { mountBooks } from "./views/books.js";
+import { mountRead } from "./views/read.js";
+import { mountVoices } from "./views/voices.js";
+
+route("/", mountHome);
+route("/sach", mountBooks);
+route("/doc", mountRead);
+route("/giong", mountVoices);
+
+/** Chỉ báo "Đang tạo: Truyện X, chương 12/171, còn ~9 giờ" — bấm vào để tới truyện. */
+function paintRunning() {
+  const el = $("#running"), c = overview.data && overview.data.current;
+  el.classList.toggle("hidden", !c);
+  if (!c) return;
+  const left = c.paused ? "đang tạm dừng" : c.estimate_seconds != null ? `còn ~${fmtLeft(c.estimate_seconds)}` : "đang tính thời gian";
+  const n = c.chapter ? `chương ${c.chapter}/${c.chapters}` : `${c.done}/${c.chapters} chương`;
+  $("#runningText").textContent = `Đang tạo: ${c.title}, ${n}, ${left}`;
+  el.dataset.book = c.book;
+}
+
+$("#running").addEventListener("click", () => { location.href = "/legacy#book=" + encodeURIComponent($("#running").dataset.book); });
+$("#btnHistory").addEventListener("click", openHistory);
+$("#btnSettings").addEventListener("click", openSettings);
+$("#scrim").addEventListener("click", closeHistory);
+$("#logo").addEventListener("click", () => go("/"));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHistory(); });
+document.addEventListener("gv:overview", paintRunning);
+
+initPlayer();
+startRouter();
+refreshOverview();
