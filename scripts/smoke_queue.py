@@ -214,6 +214,7 @@ def t_export() -> None:
     assert abs(float(info["format"]["duration"]) - total) < 1.5, (info["format"]["duration"], total)  # audio_seconds làm tròn 0,1 s
     assert abs(float(ch[1]["start_time"]) - state["c1_seconds"]) < 0.3, (ch[1]["start_time"], state["c1_seconds"])
     assert client.get(f"/api/books/{bid}/chapters/2/audio.mp3").headers["content-type"] == "audio/mpeg"
+    assert all(".tmp" not in f["name"] for f in q(bid)["exports"]), q(bid)["exports"]                    # file tạm đang ghi dở không được liệt kê
     assert post(f"/api/books/{bid}/export", {"kind": "mp3zip", "kbps": 128}).status_code == 400
 
 

@@ -205,6 +205,7 @@ check "GET /legacy trả giao diện cũ (liên kết sâu #book, #lib-add)" bas
 if command -v node >/dev/null; then
   check "mọi file static/js/**/*.js đúng cú pháp ES module" bash -c "for f in static/js/*.js static/js/views/*.js; do node --check --input-type=module < \$f || exit 1; done"
   check "errors.js: lỗi kỹ thuật → lời thường + cách khắc phục (node tests/js/errors.test.mjs)" node tests/js/errors.test.mjs
+  check "titlepattern.js: một dòng tiêu đề mẫu → mẫu tìm chương (node tests/js/titlepattern.test.mjs)" node tests/js/titlepattern.test.mjs
 fi
 
 echo "== sách nói (nhập .txt/.epub, tách chương, làm sạch, ngăn cảnh → [nghỉ])"

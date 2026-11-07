@@ -30,6 +30,7 @@ import dialogue
 import exporter
 import lexicon
 import narrate
+import settings
 import history
 import library
 import text_normalize
@@ -163,6 +164,36 @@ def index():
 def legacy():
     """Giao diện cũ (một file): các màn chưa được làm lại (Sách nói, thêm / pha giọng) vẫn dùng được ở đây."""
     return FileResponse(ROOT / "static" / "legacy.html", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/settings")
+def settings_get():
+    return settings.load()
+
+
+class SettingsIn(BaseModel):
+    default_voice: dict | None = None   # {"engine", "voice"} hoặc null = bỏ chọn
+
+
+@app.put("/api/settings")
+async def settings_put(body: SettingsIn):
+    """Lưu cài đặt chung. default_voice phải là giọng đang có và dùng được; null để bỏ chọn."""
+    dv = body.default_voice
+    if dv is not None:
+        e = get_engine(str(dv.get("engine", "")))
+        voice = str(dv.get("voice", ""))
+        check_lib_voice(e, voice)
+        try:
+            known = {v["id"] for v in await engine_voices(e)}
+        except Exception as ex:
+            raise HTTPException(e.error_status, f"Không kiểm tra được danh sách giọng: {ex}")
+        if voice not in known:
+            raise HTTPException(400, f"Không có giọng '{voice}'.")
+        dv = {"engine": e.id, "voice": voice}
+    try:
+        return settings.save(dv)
+    except settings.SettingsError as ex:
+        raise HTTPException(400, str(ex))
 
 
 @app.get("/api/overview")
@@ -629,7 +660,16 @@ def projects_delete(project_id: str):
 # ───────────────────────────── sách nói ─────────────────────────────
 
 def default_book_voice() -> dict:
-    """Giọng kể mặc định: VieNeu (default_voice của gói) nếu đã cài, không thì edge."""
+    """Giọng kể mặc định của truyện mới: giọng mặc định người dùng đã chọn (nếu còn dùng được), không thì VieNeu (Hải Đăng), không thì edge."""
+    chosen = settings.load()["default_voice"]
+    if chosen:
+        e = ENGINES.get(chosen["engine"])
+        try:
+            if e and e.installed():
+                check_lib_voice(e, chosen["voice"])
+                return dict(chosen)
+        except HTTPException:
+            pass  # giọng đã bị xoá / không còn dùng được: quay về mặc định của tool
     v = ENGINES.get("vieneu")
     if v and v.installed():
         return {"engine": "vieneu", "voice": "Hải Đăng"}

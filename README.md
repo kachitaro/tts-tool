@@ -8,8 +8,10 @@ trộn hai giọng thành giọng mới, và hội thoại nhiều người. Ch�
 Giao diện đang được làm lại cho dễ dùng (tài liệu thiết kế: `docs/ux/` — kiểm kê, sơ đồ điều hướng, bản mẫu `prototype.html`). Không có bước build: HTML + CSS + ES module thuần.
 
 - `static/index.html` + `static/css/{tokens,base,components}.css` + `static/js/` (`app.js`, `router.js`, `player.js`, `errors.js`, `voicepicker.js`, `views/`…). Màu và cỡ chữ chỉ nằm trong `tokens.css` (sáng / tối theo hệ thống).
-- Đã làm lại: khung (thanh trên cùng có chỉ báo "Đang tạo…", trình phát dính đáy, Lịch sử, Cài đặt chung), màn chính, **Đọc văn bản** (gồm "Nhiều người đọc"), **Giọng đọc**, danh sách sách nói. Lỗi hiện bằng lời thường kèm cách khắc phục, chi tiết kỹ thuật trong "Xem chi tiết" (`errors.js`).
-- Chưa làm lại (các bước sau): thêm truyện / bảng điều khiển sách nói, thêm và pha giọng. Các màn này mở ở **giao diện cũ** `/legacy` (một file, đủ mọi tính năng) nên không mất tính năng nào.
+- Đã làm lại: khung (thanh trên cùng có chỉ báo "Đang tạo…", trình phát dính đáy, Lịch sử, Cài đặt chung), màn chính, **Đọc văn bản** (gồm "Nhiều người đọc"), **Giọng đọc**, **Làm sách nói** (trình 3 bước Chọn file → Kiểm tra → Chọn giọng, trang từng truyện, Cách đọc tên riêng). Lỗi hiện bằng lời thường kèm cách khắc phục, chi tiết kỹ thuật trong "Xem chi tiết" (`errors.js`).
+- Làm sách nói (`#/sach/them`, `#/sach/<id>/kiem-tra`, `#/sach/<id>/giong`, `#/sach/<id>`): kéo thả file → tool chia chương và báo chỗ đáng ngờ bằng lời thường (thiếu chương, chữ bị che, chương quá ngắn) → "Có chỗ sai" mở công cụ sửa (mẫu tiêu đề từ một dòng ví dụ, gộp/tách chương, bỏ từng quy tắc dọn văn bản, xem dòng bị đổi) → chọn giọng, nghe thử 1 phút → bắt đầu. "Tạo thử 5 chương trước" dừng sau 5 chương (client chỉ xếp 5 chương vào hàng đợi, cờ nhớ trong `localStorage`) rồi hiện banner "Tạo tiếp". Danh sách chương chia trang 50 dòng (đo với 1.500 chương: xem báo cáo UX-3).
+- Chưa làm lại (các bước sau): thêm và pha giọng. Các màn này mở ở **giao diện cũ** `/legacy` (một file, đủ mọi tính năng) nên không mất tính năng nào.
+- `GET /api/settings` / `PUT /api/settings` `{default_voice:{engine,voice}|null}`: giọng mặc định (Cài đặt chung); lưu ở `data/settings.json`, module `settings.py`. Chưa chọn thì dùng giọng ⭐ đầu tiên của giọng trên máy.
 - `GET /api/overview` (chỉ đọc): trạng thái hàng đợi + danh sách truyện kèm số chương đã xong + truyện đang tạo, để vẽ thanh trên cùng và màn chính bằng một request.
 
 ## Tính năng theo engine
@@ -65,7 +67,7 @@ Lần đầu dùng VieNeu, model (~1 GB) được tải từ Hugging Face một 
 
 ## Dữ liệu trong `data/`
 
-`voices/<id>/` (giọng nhân bản và giọng trộn), `favorites.json`, `history/` (50 bản gần nhất), `projects/`, `cache/`, `lexicon.json` (từ điển toàn cục), `books/<id>/` (`book.json`, `source/`, `chapters/`, `audio/<nnnn>.flac`, `export/`), `queue.json` (hàng đợi bền), `bench.json` (số đo của `scripts/bench_vieneu.py`).
+`voices/<id>/` (giọng nhân bản và giọng trộn), `favorites.json`, `history/` (50 bản gần nhất), `projects/`, `cache/`, `lexicon.json` (từ điển toàn cục), `books/<id>/` (`book.json`, `source/`, `chapters/`, `audio/<nnnn>.flac`, `export/`), `queue.json` (hàng đợi bền), `settings.json` (giọng mặc định), `bench.json` (số đo của `scripts/bench_vieneu.py`).
 File cấu hình sửa được, nằm trong repo: `config/name_stopwords.txt` (từ dừng của gợi ý tên riêng), `config/speech_verbs.txt` (động từ nói nhận ra phần dẫn viết hoa sau gạch thoại).
 Thư mục này không nằm trong git. Không chạy hai server cùng lúc trên một `data/` (khoá ghi chỉ có trong một tiến trình).
 

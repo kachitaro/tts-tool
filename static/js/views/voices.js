@@ -14,7 +14,7 @@ export function mountVoices(root) {
       h("div", { class: "row" },
         h("button", { class: "btn primary", onclick: () => { location.href = "/legacy#lib-add"; } }, "🎙️ Thêm giọng từ file ghi âm"),
         h("button", { class: "btn", onclick: () => { location.href = "/legacy#mix"; } }, "🎚️ Pha giọng mới"))),
-    h("p", { class: "lead" }, "Bấm ▶ để nghe thử. Bấm ♥ để đánh dấu giọng bạn hay dùng."), body);
+    h("p", { class: "lead" }, "Bấm ▶ để nghe thử. Bấm ★ để đánh dấu giọng bạn hay dùng."), body);
   let alive = true;
   (async () => {
     try {

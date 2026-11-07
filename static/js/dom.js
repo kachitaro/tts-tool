@@ -31,3 +31,7 @@ export function fmtLeft(sec) {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+// replaceChildren(null / false) mặc định in chữ "null" ra màn hình; bỏ qua các giá trị rỗng như h() vẫn làm.
+const nativeReplace = Element.prototype.replaceChildren;
+Element.prototype.replaceChildren = function (...nodes) { return nativeReplace.apply(this, nodes.filter((n) => n != null && n !== false)); };

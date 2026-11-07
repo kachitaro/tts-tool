@@ -6,6 +6,7 @@ import { VoicePicker, keyOf, splitKey, kindLabel, displayName, metaLine, preview
 import { modal, showError, toast, switchEl } from "../ui.js";
 import { play } from "../player.js";
 import { pending } from "../router.js";
+import { getSettings, effectiveDefault } from "../defaults.js";
 
 const SAMPLE_SCRIPT = "[Lan]: Chào anh, hôm nay anh khoẻ không?\n[Minh]: Anh khoẻ, cảm ơn em.\n\n[Lan]: Vậy thì tốt quá, mình đi dạo nhé.";
 const SPEEDS = [["Chậm", -15], ["Vừa", 0], ["Nhanh", 20]];   // phần trăm gửi cho server (−50…200)
@@ -20,16 +21,16 @@ const S = {
 };
 
 export function mountRead(root) {
-  let alive = true, E = {}, V = [], engineId = null;
+  let alive = true, E = {}, V = [], engineId = null, ST = null;
   const cleanup = () => { alive = false; };
   root.append(h("p", { class: "muted" }, "Đang tải danh sách giọng…"));
-  Promise.all([engines(), voices()]).then(([e, v]) => {
+  Promise.all([engines(), voices(), getSettings(true)]).then(([e, v, st]) => {
     if (!alive) return;
-    E = e; V = v;
+    E = e; V = v; ST = st;
     const avail = Object.entries(E).filter(([, x]) => x.available).map(([id]) => id);
     if (!avail.length) { root.replaceChildren(h("p", { class: "notice err" }, "Chưa có giọng nào dùng được. Mở Cài đặt → Nâng cao để xem cách cài.")); return; }
     engineId = prefs.get("engine");
-    if (!avail.includes(engineId)) engineId = avail.includes("vieneu") ? "vieneu" : avail[0];
+    if (!avail.includes(engineId)) { const d = effectiveDefault(V, E, ST).voice; engineId = d && avail.includes(d.engine) ? d.engine : avail.includes("vieneu") ? "vieneu" : avail[0]; }
     applyReuse();
     draw();
   }).catch((e) => { root.replaceChildren(); showError(e); });
@@ -40,7 +41,8 @@ export function mountRead(root) {
   const voicesOf = (id) => V.filter((v) => v.engine === id && usable(v) && (!v.lang || v.lang.startsWith("vi")));
   function chosenVoice(id = engineId) {
     const list = voicesOf(id), saved = prefs.get("voice:" + id);
-    return list.find((v) => v.id === saved) || list.find((v) => v.favorite) || list[0] || null;
+    const d = effectiveDefault(V, E, ST).voice;
+    return list.find((v) => v.id === saved) || (d && d.engine === id && list.find((v) => v.id === d.id)) || list.find((v) => v.source === "preset" && v.favorite) || list[0] || null;
   }
   const speedPct = () => (S.custom !== "" && !Number.isNaN(+S.custom) ? Math.max(-50, Math.min(200, Math.round(+S.custom))) : S.speed);
   const tagsOf = () => [...new Set((S.multi ? Object.values(E).filter((x) => x.available) : [eng()]).flatMap((x) => (x.capabilities.emotion_tags || [])))];

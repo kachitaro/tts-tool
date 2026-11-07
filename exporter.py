@@ -183,7 +183,7 @@ def list_files(book_id: str) -> list[dict]:
     if not d.is_dir():
         return []
     return [{"name": f.name, "size": f.stat().st_size, "modified": f.stat().st_mtime}
-            for f in sorted(d.iterdir(), key=lambda p: -p.stat().st_mtime) if f.is_file() and f.suffix in (".zip", ".m4b")]
+            for f in sorted(d.iterdir(), key=lambda p: -p.stat().st_mtime) if f.is_file() and f.suffix in (".zip", ".m4b") and ".tmp." not in f.name and not f.name.endswith(".tmp")]
 
 
 def file_path(book_id: str, name: str) -> Path:

@@ -7,11 +7,17 @@ import { openHistory, closeHistory } from "./history.js";
 import { openSettings } from "./settings.js";
 import { mountHome } from "./views/home.js";
 import { mountBooks } from "./views/books.js";
+import { mountWizardStart, mountWizardCheck, mountWizardVoice } from "./views/wizard.js";
+import { mountBook } from "./views/book.js";
 import { mountRead } from "./views/read.js";
 import { mountVoices } from "./views/voices.js";
 
 route("/", mountHome);
 route("/sach", mountBooks);
+route("/sach/them", mountWizardStart);
+route("/sach/:id", mountBook);
+route("/sach/:id/kiem-tra", mountWizardCheck);
+route("/sach/:id/giong", mountWizardVoice);
 route("/doc", mountRead);
 route("/giong", mountVoices);
 
@@ -26,7 +32,7 @@ function paintRunning() {
   el.dataset.book = c.book;
 }
 
-$("#running").addEventListener("click", () => { location.href = "/legacy#book=" + encodeURIComponent($("#running").dataset.book); });
+$("#running").addEventListener("click", () => go("/sach/" + encodeURIComponent($("#running").dataset.book)));
 $("#btnHistory").addEventListener("click", openHistory);
 $("#btnSettings").addEventListener("click", openSettings);
 $("#scrim").addEventListener("click", closeHistory);

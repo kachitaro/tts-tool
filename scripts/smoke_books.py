@@ -612,6 +612,44 @@ def t_pause_settings_api() -> None:
     state["pauses"] = bid
 
 
+def t_settings_default_voice() -> None:
+    assert j(client.get(f"{B}/api/settings")) == {"default_voice": None}
+    vs = j(client.get(f"{B}/api/voices/vieneu"))
+    pick = next(v for v in vs if v["id"] != "Hải Đăng" and v.get("usable", True))               # khác giọng mặc định của tool để thấy rõ tác dụng
+    got = j(client.put(f"{B}/api/settings", json={"default_voice": {"engine": "vieneu", "voice": pick["id"]}}))
+    assert got == {"default_voice": {"engine": "vieneu", "voice": pick["id"]}} and j(client.get(f"{B}/api/settings")) == got
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("s.txt", STORY.encode(), "text/plain"))], data={"title": "Giọng mặc định smoke"}))
+    assert d["voice"] == {"engine": "vieneu", "voice": pick["id"]}, d["voice"]                      # truyện mới dùng giọng mặc định người dùng chọn
+    j(client.delete(f"{B}/api/books/{d['id']}"))
+    for bad in ({"engine": "khong-co", "voice": "x"}, {"engine": "vieneu", "voice": "Giọng không tồn tại"}, {"engine": "vieneu", "voice": "lib:khong-co"}, {"engine": "vieneu", "voice": ""}):
+        assert client.put(f"{B}/api/settings", json={"default_voice": bad}).status_code in (400, 404), bad
+    assert j(client.get(f"{B}/api/settings")) == got, "lưu sai không được làm mất lựa chọn cũ"
+    assert j(client.put(f"{B}/api/settings", json={"default_voice": None})) == {"default_voice": None}
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("s.txt", STORY.encode(), "text/plain"))], data={"title": "Giọng mặc định smoke 2"}))
+    assert d["voice"] == {"engine": "vieneu", "voice": "Hải Đăng"}, d["voice"]                      # bỏ chọn → mặc định của tool
+    j(client.delete(f"{B}/api/books/{d['id']}"))
+
+
+def t_title_pattern_inference_with_server() -> None:
+    """Mẫu do titlepattern.js suy ra từ MỘT dòng ví dụ phải được server nhận (biên dịch được) và tìm đúng dòng tiêu đề."""
+    import json
+    import shutil
+    import subprocess
+
+    if not shutil.which("node"):
+        return
+    pats = json.loads(subprocess.run(["node", str(Path(__file__).resolve().parent.parent / "tests" / "js" / "print_patterns.mjs")], capture_output=True, text=True, check=True).stdout)
+    body = "Nội dung của phần này đủ dài để không bị coi là quá ngắn và bị bỏ đi khi tách chương nhé các bạn."
+    text = "\n".join(["Chương 1: Mở màn", body, "Hồi 2. Biến cố", body, "Chapter 3", body, "第4章 开始", body, "5. Cuối cùng", body, "Mở đầu", body])
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("p.txt", text.encode(), "text/plain"))], data={"title": "Mẫu tiêu đề smoke"}))
+    want = {"Chương 5: Gặp gỡ": "Chương 1: Mở màn", "Hồi 5. Gặp gỡ": "Hồi 2. Biến cố", "Chapter 5": "Chapter 3", "第5章 开始": "第4章 开始", "5. Cuối cùng": "5. Cuối cùng", "Mở đầu": "Mở đầu"}
+    for example, pat in pats.items():
+        p = j(client.post(f"{B}/api/books/{d['id']}/preview", json={"regex": pat, "mode": "regex"}))
+        titles = [c["title"] for c in p["chapters"]]
+        assert want[example] in titles and sum(t != want[example] for t in titles) <= 1, (example, pat, titles)  # chỉ cho phép thêm đoạn "Mở đầu" trước tiêu đề đầu tiên
+    j(client.delete(f"{B}/api/books/{d['id']}"))
+
+
 def t_overview_api() -> None:
     o = j(client.get(f"{B}/api/overview"))
     assert set(o) == {"queue", "books", "current"} and o["queue"]["state"] in ("idle", "running", "paused", "pausing") and isinstance(o["books"], list), list(o)
@@ -880,6 +918,8 @@ for name, fn in [
     ("API: nhập 3 file HTML, xem trước (thứ tự, cảnh báo, từ bị che), từ điển từ bị che, selector, zip", t_html_api),
     ("API: v2.1 GET /api/engines có precision", t_engines_precision_api),
     ("API: v2.1 mức nghỉ đoạn văn / tiêu đề trong cài đặt truyện, kiểm tra khoảng giá trị", t_pause_settings_api),
+    ("API: GET/PUT /api/settings — giọng mặc định (kiểm tra giọng, truyện mới dùng giọng đó, bỏ chọn)", t_settings_default_voice),
+    ("API: mẫu tiêu đề suy ra từ một dòng ví dụ (node) được server chấp nhận và tìm đúng chương", t_title_pattern_inference_with_server),
     ("API: GET /api/overview (chỉ đọc: hàng đợi + truyện + tiến độ, current null khi rảnh)", t_overview_api),
     ("API: v2.1 dung lượng từng truyện, xoá nguồn FLAC khi chưa có gì đã xuất", t_disk_api),
     ("API: 6a+ tác động quy tắc, ngoại lệ lưu và dùng lại khi tách chương", t_rule_impact_api),

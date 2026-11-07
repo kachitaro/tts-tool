@@ -61,7 +61,7 @@ export function VoicePicker({ voices, engines, value, onPick, actions, only, tal
   const chips = h("div", { class: "chiprow" });
   function paintChips() {
     chips.replaceChildren(
-      chip("♥ Yêu thích", st.fav, () => { st.fav = !st.fav; }),
+      chip("★ Yêu thích", st.fav, () => { st.fav = !st.fav; }),
       h("span", { class: "sep" }),
       chip("Giọng nam", st.gender === "nam", () => { st.gender = st.gender === "nam" ? "" : "nam"; }),
       chip("Giọng nữ", st.gender === "nữ", () => { st.gender = st.gender === "nữ" ? "" : "nữ"; }),
@@ -73,8 +73,8 @@ export function VoicePicker({ voices, engines, value, onPick, actions, only, tal
   const row = (v) => {
     const usable = v.usable !== false;
     const sel = value && keyOf(v) === value;
-    const fav = h("button", { type: "button", class: "fav" + (v.favorite ? " on" : ""), "aria-label": v.favorite ? "Bỏ yêu thích" : "Yêu thích", title: v.favorite ? "Bỏ yêu thích" : "Yêu thích",
-      onclick: async (e) => { e.stopPropagation(); try { await setFavorite(v, !v.favorite); paint(); } catch (er) { showError(er); } } }, v.favorite ? "♥" : "♡");
+    const fav = h("button", { type: "button", class: "fav" + (v.favorite ? " on" : ""), "aria-label": (v.favorite ? "Bỏ đánh dấu sao " : "Đánh dấu sao ") + displayName(v), title: v.favorite ? "Bỏ yêu thích" : "Yêu thích",
+      onclick: async (e) => { e.stopPropagation(); try { await setFavorite(v, !v.favorite); paint(); } catch (er) { showError(er); } } }, v.favorite ? "★" : "☆");
     const playBtn = h("button", { type: "button", class: "play", "aria-label": "Nghe thử " + displayName(v), title: "Nghe thử", disabled: !usable,
       onclick: (e) => { e.stopPropagation(); previewVoice(v); } }, "▶");
     const r = h("div", { class: "vrow" + (sel ? " sel" : "") + (usable ? "" : " dim") + (onPick && usable ? " pick" : ""), role: onPick ? "radio" : undefined, "aria-checked": onPick ? String(!!sel) : undefined,
