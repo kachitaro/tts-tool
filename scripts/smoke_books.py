@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import sys
 import tempfile
 import time
@@ -623,6 +624,202 @@ def t_disk_api() -> None:
 
 
 
+# ───────────── nhập file HTML chương truyện ─────────────
+FIXTURE = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "chapter_sample.html"
+EXPECTED = Path(__file__).resolve().parent / "vi-du-chuong-1.txt"
+
+
+def html_variant(n: int, title: str | None = None, unknown: str = "") -> bytes:
+    """Bản sao fixture thành 'chương n': đổi số trong <title>, thêm hậu tố riêng cho từng đoạn (nếu không quy tắc 'dòng trùng' sẽ coi
+    cả thân chương giống nhau giữa các chương là quảng cáo lặp)."""
+    h = FIXTURE.read_text(encoding="utf-8")
+    h = re.sub(r"<title>.*?</title>", f"<title>{title or f'Cảnh Sát Hình Sự La Phi - Chương {n}: Chương {n}: TIÊU ĐỀ SỐ {n} | TruyenFull.vn'}</title>", h, count=1, flags=re.S)
+    h = h.replace("<br>", f" (hồi {n})<br>") + (f"<p>{unknown}</p>" if unknown else "")
+    return h.encode()
+
+
+def html_book(files, **settings):
+    """Nhập (name, bytes) vào truyện tạm (module trực tiếp) → (book, built)."""
+    b = books.import_files(files, "H" + os.urandom(3).hex(), "", {"engine": "vieneu", "voice": "x"})
+    st = books.overrides(b, {})
+    for k, v in settings.items():
+        st["clean"]["rules"][k] = v
+    return b, books.build(books.load_docs(b["id"]), st)
+
+
+def t_html_fixture_matches_example() -> None:
+    exp = EXPECTED.read_text(encoding="utf-8")
+    norm = lambda t: [l for l in t.split("\n") if l.strip()]  # noqa: E731
+    b, built = html_book([("chapter_sample.html", FIXTURE.read_bytes())], quotes=False)
+    assert b["split"]["mode"] == "per_file" and len(built["chapters"]) == 1
+    c = built["chapters"][0]
+    got = c["title"] + "\n\n" + c["text"].replace("[nghỉ 1.5s]", "***")      # ngăn cảnh = quy tắc [nghỉ] có sẵn
+    assert c["title"] == "Chương 1: Bức tranh tức giận (1)", c["title"]
+    assert norm(got) == norm(exp), "khác vi-du-chuong-1.txt (không tính dòng trống)"
+    assert "*" not in c["text"] and "ham muốn" in c["text"].lower() or "*" not in c["text"], c["text"][:200]
+    assert built["stats"]["unmask"] == 2 and built["stats"]["join_numbers"] == 1, built["stats"]
+    assert built["warnings"] == [] and built["masked_unknown"] == [], (built["warnings"], built["masked_unknown"])
+    # tắt "bỏ dòng trống thừa": giữ nguyên các dòng trống như bản mẫu
+    _, built2 = html_book([("chapter_sample.html", FIXTURE.read_bytes())], quotes=False, blank_lines=False)
+    c2 = built2["chapters"][0]
+    assert (c2["title"] + "\n\n" + c2["text"].replace("[nghỉ 1.5s]", "***")).strip() == exp.strip()
+
+
+def t_html_outside_frame_kept() -> None:
+    _, built = html_book([("c.html", FIXTURE.read_bytes())])
+    t = built["chapters"][0]["text"]
+    assert "Hồi ức của ông cũng giống như phủ đầy bụi" in t and "Ông cho là hồi ức kia sẽ không bao giờ bị chạm đến nữa" in t, "đoạn ngoài khung chương bị mất"
+    assert "ads" not in t.lower() and "function" not in t and "var " not in t, "script / quảng cáo lọt vào văn bản"
+    assert t.splitlines().index("Mở Đầu") < next(i for i, l in enumerate(t.splitlines()) if l.startswith("Hồi ức của ông"))
+
+
+def t_html_order_dupes_missing() -> None:
+    files = [("chuong-10.html", html_variant(10)), ("chuong-1.html", html_variant(1)), ("chuong-2.html", html_variant(2))]
+    b, built = html_book(files)
+    assert [s["name"] for s in b["sources"]] == ["chuong-1.html", "chuong-2.html", "chuong-10.html"], [s["name"] for s in b["sources"]]
+    assert [c["title"] for c in built["chapters"]] == ["Chương 1: Tiêu đề số 1", "Chương 2: Tiêu đề số 2", "Chương 10: Tiêu đề số 10"], [c["title"] for c in built["chapters"]]
+    assert built["warnings"] == ["Thiếu chương: 3, 4, 5, 6, 7, 8, 9."], built["warnings"]
+    # thiếu / trùng
+    _, built = html_book([("a.html", html_variant(1)), ("b.html", html_variant(2)), ("c.html", html_variant(4))])
+    assert built["warnings"] == ["Thiếu chương: 3."], built["warnings"]
+    _, built = html_book([("a.html", html_variant(1)), ("b.html", html_variant(2)), ("b-copy.html", html_variant(2)), ("c.html", html_variant(5))])
+    assert "Trùng số chương 2: b-copy.html, b.html." in built["warnings"] and "Thiếu chương: 3, 4." in built["warnings"], built["warnings"]
+    # tiêu đề không có số → số trong tên file (không theo bảng chữ cái: 1, 2, 10)
+    no_title = lambda n: html_variant(n, title="Cảnh Sát Hình Sự La Phi | TruyenFull.vn")  # noqa: E731
+    b, _ = html_book([("truyen_c10.html", no_title(10)), ("truyen_c2.html", no_title(2)), ("truyen_c1.html", no_title(1))])
+    assert [s["chapter_no"] for s in b["sources"]] == [1, 2, 10], b["sources"]
+    # tiêu đề: bỏ tên trang + "Chương N:" lặp, IN HOA → chữ thường
+    from html_import import clean_title
+    assert clean_title("Truyện X - Chương 7: Chương 7: ĐẠI CHIẾN BẮT ĐẦU | TruyenFull.vn") == "Chương 7: Đại chiến bắt đầu"
+
+
+def t_html_selector() -> None:
+    page = ('<html><head><title>X - Chương 3: Một | TruyenFull.vn</title></head><body><div class="intro">Lời giới thiệu không lấy.</div>'
+            '<div class="noidung" id="main"><p>Đoạn một của chương ba, đủ dài để không bị coi là chương rỗng nhé.</p></div>'
+            '<p>Đoạn ngoài khung vẫn phải giữ lại vì HTML lỗi hay đẩy nội dung ra ngoài khung chương.</p></body></html>').encode()
+    b = books.import_files([("c3.html", page)], "Selector " + os.urandom(2).hex(), "", {"engine": "vieneu", "voice": "x"})
+    st = books.overrides(b, {})
+    built = books.build(books.load_docs(b["id"], st["split"]["selector"]), st)               # #chapter-c không có → cả <body> + cảnh báo
+    assert any("không tìm thấy khung chương" in w for w in built["warnings"]) and "Lời giới thiệu" in built["chapters"][0]["text"], built["warnings"]
+    for sel in (".noidung", "#main", "div.noidung", "div#main.noidung"):
+        st = books.overrides(b, {"selector": sel})
+        built = books.build(books.load_docs(b["id"], st["split"]["selector"]), st)
+        t = built["chapters"][0]["text"]
+        assert "Lời giới thiệu" not in t and "Đoạn ngoài khung vẫn phải giữ lại" in t and not any("khung" in w for w in built["warnings"]), (sel, t, built["warnings"])
+    for bad in ("", "div > p", "#"):
+        try:
+            books.validate_selector(bad)
+        except books.BookError:
+            continue
+        raise AssertionError(f"selector {bad!r} phải bị từ chối")
+
+
+def t_masked_unknown_and_dictionary() -> None:
+    from html_import import masked_matches
+    assert masked_matches("m**n", "muốn") and masked_matches("Th*ch", "thích") and not masked_matches("m**n", "muộn!") and not masked_matches("muốn", "muốn")
+    assert not masked_matches("m**n", "mạnh") and not masked_matches("m*n", "muốn")                  # số chữ phải bằng nhau, chữ không bị che phải giống
+    b, built = html_book([("c.html", html_variant(1, unknown="Hắn nhìn zz*zz và q*t rồi nói h*m m**n."))])
+    got = {u["word"]: u for u in built["masked_unknown"]}
+    assert set(got) == {"zz*zz", "q*t"} and got["zz*zz"]["count"] >= 1 and "zz*zz" in got["zz*zz"]["example"], got   # "h*m m**n" đã khôi phục
+    assert "ham muốn" in built["chapters"][0]["text"]
+    # thêm "từ đúng là…" → áp dụng lại ngay
+    try:
+        books.add_masked_word("q*t", "quên")
+    except books.BookError:
+        pass
+    else:
+        raise AssertionError("'quên' (5 chữ) không khớp 'q*t'")
+    words = books.add_masked_word("q*t", "qút")
+    assert "qút" in words and books.add_masked_word("q*t", "qút").count("qút") == 1                # không trùng
+    st = books.overrides(b, {})
+    built = books.build(books.load_docs(b["id"]), st)
+    assert [u["word"] for u in built["masked_unknown"]] == ["zz*zz"] and "qút" in built["chapters"][0]["text"], built["masked_unknown"]
+    # tắt quy tắc → không khôi phục, không báo
+    st["clean"]["rules"]["unmask"] = False
+    built = books.build(books.load_docs(b["id"]), st)
+    assert built["masked_unknown"] == [] and "h*m m**n" in built["chapters"][0]["text"] and "unmask" not in built["stats"]
+    # "Giữ dòng này" (ngoại lệ) áp dụng cho quy tắc mới
+    st = books.overrides(b, {"exceptions": [{"rule": "unmask", "line": "Hắn nhìn zz*zz và q*t rồi nói h*m m**n. (hồi 1)"}]})
+    built = books.build(books.load_docs(b["id"]), st)
+    assert "h*m m**n" in built["chapters"][0]["text"], built["chapters"][0]["text"][-120:]
+
+
+def t_join_numbers_blank_lines_rules() -> None:
+    doc = books.Doc("t", "Chương 1\nGiá là 2. 513 đồng, thêm 1, 200 nữa.\n\n\nDòng sau khá dài để chương không bị bỏ đi vì quá ngắn nhé.\n\nDòng cuối.")
+    st = books.default_settings()
+    c = books.build([doc], st)["chapters"][0]["text"]
+    assert "2.513" in c and "1,200" in c and "\n\n" not in c, repr(c)
+    st["clean"]["rules"].update(join_numbers=False, blank_lines=False)
+    c = books.build([books.Doc("t", doc.text)], st)["chapters"][0]["text"]
+    assert "2. 513" in c and "\n\n" in c and "\n\n\n" not in c, repr(c)                             # không còn quy tắc: giữ tối đa 1 dòng trống như cũ
+    b = books.build([books.Doc("t", doc.text)], books.default_settings())
+    assert b["stats"]["join_numbers"] == 1 and b["stats"]["blank_lines"] == 3, b["stats"]
+    assert b["rules"]["blank_lines"]["examples"][0]["before"].startswith("(dòng trống giữa")
+
+
+def t_html_zip_import() -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n in (3, 1, 2):
+            z.writestr(f"truyen/chuong-{n}.html", html_variant(n))
+        z.writestr("truyen/readme.txt", "bỏ qua")
+        z.writestr("__MACOSX/truyen/._chuong-1.html", "rác")
+    b = books.import_files([("truyen.zip", buf.getvalue())], "Zip " + os.urandom(2).hex(), "", {"engine": "vieneu", "voice": "x"})
+    assert [s["name"] for s in b["sources"]] == ["truyen/chuong-1.html", "truyen/chuong-2.html", "truyen/chuong-3.html"] and b["split"]["mode"] == "per_file", b["sources"]
+    for bad_zip, why in ((b"khong phai zip", "zip hỏng"), (_zip_of({"a.txt": "x"}), "zip không có html")):
+        try:
+            books.import_files([("x.zip", bad_zip)], "", "", {"engine": "vieneu", "voice": "x"})
+        except books.BookError:
+            continue
+        raise AssertionError(f"{why} phải bị từ chối")
+
+
+def _zip_of(files: dict) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n, c in files.items():
+            z.writestr(n, c)
+    return buf.getvalue()
+
+
+def t_html_api() -> None:
+    files = [("files", (n, html_variant(i, unknown="Có zz*zz lạ ở đây." if i == 1 else ""), "text/html")) for n, i in (("c10.html", 10), ("c1.html", 1), ("c2.html", 2))]
+    d = j(client.post(f"{B}/api/books/import", files=files, data={"title": "HTML smoke"}))
+    bid = d["id"]
+    assert d["split"]["mode"] == "per_file" and d["split"]["selector"] == "#chapter-c" and [s["chapter_no"] for s in d["sources"]] == [1, 2, 10], d["sources"]
+    p = j(client.post(f"{B}/api/books/{bid}/preview"))
+    assert [c["title"] for c in p["chapters"]] == ["Chương 1: Tiêu đề số 1", "Chương 2: Tiêu đề số 2", "Chương 10: Tiêu đề số 10"], p["chapters"]
+    assert p["warnings"] == ["Thiếu chương: 3, 4, 5, 6, 7, 8, 9."], p["warnings"]
+    assert [u["word"] for u in p["masked_unknown"]] == ["zz*zz"], p["masked_unknown"]
+    assert {"unmask", "join_numbers", "blank_lines"} <= set(p["rules"]) and p["rules"]["unmask"]["count"] == 6, {k: v["count"] for k, v in p["rules"].items()}
+    cat = {r["name"] for r in j(client.get(f"{B}/api/books/{bid}"))["rules_catalog"]}
+    assert {"unmask", "join_numbers", "blank_lines"} <= cat
+    # từ điển từ bị che: sai → 400, đúng → thêm và xem trước lại hết cảnh báo
+    assert client.post(f"{B}/api/masked-words", json={"masked": "zz*zz", "correct": "khác hẳn"}).status_code == 400
+    words = j(client.post(f"{B}/api/masked-words", json={"masked": "zz*zz", "correct": "zzazz"}))
+    assert "zzazz" in words and "zzazz" in j(client.get(f"{B}/api/masked-words"))
+    p = j(client.post(f"{B}/api/books/{bid}/preview"))
+    assert p["masked_unknown"] == [], p["masked_unknown"]
+    # selector tuỳ chỉnh: ghi đè khi xem trước, lưu qua PATCH, sai → 400
+    assert client.post(f"{B}/api/books/{bid}/preview", json={"selector": "div >"}).status_code == 400
+    p = j(client.post(f"{B}/api/books/{bid}/preview", json={"selector": "#khong-co"}))
+    assert sum("không tìm thấy khung chương" in w for w in p["warnings"]) == 3, p["warnings"]
+    assert client.patch(f"{B}/api/books/{bid}", json={"split": {"selector": "x y"}}).status_code == 400
+    assert j(client.patch(f"{B}/api/books/{bid}", json={"split": {"selector": ".chapter-c"}}))["split"]["selector"] == ".chapter-c"
+    b = j(client.post(f"{B}/api/books/{bid}/chapters"))
+    assert b["status"] == "ready" and b["chapters"]["count"] == 3 and b["split"]["selector"] == ".chapter-c"
+    assert "Hồi ức của ông" in j(client.get(f"{B}/api/books/{bid}/chapters/1"))["text"]
+    j(client.delete(f"{B}/api/books/{bid}"))
+    # zip qua API; file không hỗ trợ vẫn bị từ chối
+    z = _zip_of({"a/ch1.html": html_variant(1), "a/ch2.html": html_variant(2)})
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("truyen.zip", z, "application/zip"))], data={"title": "Zip API"}))
+    assert [s["name"] for s in d["sources"]] == ["a/ch1.html", "a/ch2.html"], d["sources"]
+    j(client.delete(f"{B}/api/books/{d['id']}"))
+    assert client.post(f"{B}/api/books/import", files=[("files", ("a.docx", b"x", "application/zip"))]).status_code == 400
+    assert client.post(f"{B}/api/books/import", files=[("files", ("a.zip", b"khong phai zip", "application/zip"))]).status_code == 400
+
+
+
 for name, fn in [
     ("6a+: mỗi quy tắc báo số dòng bị ảnh hưởng + dòng ví dụ (tối đa 50)", t_rule_impact_module),
     ("6a+: ngoại lệ \"Giữ dòng này\" (xoá, thay thế, gộp)", t_exceptions_module),
@@ -631,6 +828,13 @@ for name, fn in [
     ("v2.1: đoạn văn → đoạn cắt chỉ ở ranh giới đoạn văn, thẻ nghỉ ở mối nối, đoạn dài cắt ở ranh giới câu", t_paragraph_segments),
     ("v2.1: đổi giọng đúng chỗ xuống đoạn chỉ có một khoảng nghỉ", t_units_no_double_gap),
     ("v2.1: precision mặc định theo VNNI, VIENEU_PRECISION ghi đè, cache_tag tách fp32 / int8", t_precision_default),
+    ("HTML: fixture thật khớp vi-du-chuong-1.txt (3 quy tắc mới, ngăn cảnh → [nghỉ])", t_html_fixture_matches_example),
+    ("HTML: đoạn 'Hồi ức của ông…' nằm ngoài khung chương không bị mất; script / quảng cáo bị bỏ", t_html_outside_frame_kept),
+    ("HTML: chương 1/2/10 xếp đúng thứ tự, báo thiếu / trùng chương, tiêu đề sạch", t_html_order_dupes_missing),
+    ("HTML: selector khung chương chỉnh được, không thấy khung → cả body + cảnh báo", t_html_selector),
+    ("HTML: từ bị che lạ được báo, thêm 'từ đúng là…' áp dụng lại ngay, ngoại lệ", t_masked_unknown_and_dictionary),
+    ("HTML: quy tắc ghép số bị tách và bỏ dòng trống thừa (bật/tắt, thống kê)", t_join_numbers_blank_lines_rules),
+    ("HTML: nhập file .zip chứa html (bỏ file khác, zip hỏng / không có html bị từ chối)", t_html_zip_import),
     ("6b+: phần dẫn viết hoa sau gạch thoại (5 ví dụ)", t_lead_in_cases),
     ("6b+: config/speech_verbs.txt sửa được, có hiệu lực ngay", t_speech_verbs_file_editable),
     ("6b+: gợi ý tên 1 tiếng chỉ khi là thành phần cụm đã gợi ý, đứng riêng ≥ 5 lần", t_suggest_single),
@@ -651,6 +855,7 @@ for name, fn in [
     ("API: xác nhận tách chương, danh sách chương, đọc chương, 404", t_confirm_and_chapters),
     ("API: cài đặt (tắt đọc tiêu đề, nghỉ ngăn cảnh 2s, quy tắc tuỳ chỉnh) áp dụng khi tách lại", t_settings),
     ("API: ▶ nghe thử đầu chương trả WAV", t_sample),
+    ("API: nhập 3 file HTML, xem trước (thứ tự, cảnh báo, từ bị che), từ điển từ bị che, selector, zip", t_html_api),
     ("API: v2.1 GET /api/engines có precision", t_engines_precision_api),
     ("API: v2.1 mức nghỉ đoạn văn / tiêu đề trong cài đặt truyện, kiểm tra khoảng giá trị", t_pause_settings_api),
     ("API: v2.1 dung lượng từng truyện, xoá nguồn FLAC khi chưa có gì đã xuất", t_disk_api),

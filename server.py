@@ -604,6 +604,7 @@ class SplitIn(BaseModel):
     regex: str | None = None
     mode: str | None = None
     ops: list[dict] | None = None
+    selector: str | None = None
     clean: dict | None = None
     exceptions: list[dict] | None = None
 
@@ -628,7 +629,7 @@ async def build_book(book_id: str, book: dict, body: SplitIn) -> tuple[dict, dic
     """Tách chương + làm sạch với cài đặt đã lưu, ghi đè bởi body (xem trước hoặc xác nhận). Trả (built, settings)."""
     try:
         settings = books.overrides(book, body.model_dump())
-        built = await anyio.to_thread.run_sync(lambda: books.build(books.load_docs(book_id), settings))
+        built = await anyio.to_thread.run_sync(lambda: books.build(books.load_docs(book_id, settings["split"].get("selector")), settings))
     except books.BookError as ex:
         raise HTTPException(400, str(ex))
     return built, settings
@@ -649,6 +650,25 @@ async def books_import(files: list[UploadFile] = File(...), title: str = Form(""
         data.append((f.filename or "file.txt", raw))
     try:
         return await anyio.to_thread.run_sync(books.import_files, data, title, author, default_book_voice())
+    except books.BookError as ex:
+        raise HTTPException(400, str(ex))
+
+
+@app.get("/api/masked-words")
+def masked_words_get():
+    return books.load_masked()
+
+
+class MaskedIn(BaseModel):
+    masked: str
+    correct: str
+
+
+@app.post("/api/masked-words")
+def masked_words_add(body: MaskedIn):
+    """Thêm từ vào từ điển từ bị che (từ màn xem trước: "từ đúng là…"). 400 nếu từ đúng không khớp từ bị che."""
+    try:
+        return books.add_masked_word(body.masked, body.correct)
     except books.BookError as ex:
         raise HTTPException(400, str(ex))
 
@@ -686,8 +706,10 @@ def books_patch(book_id: str, body: BookPatch):
         if body.title_pause_s is not None:
             book["title_pause_s"] = books.validate_pause(body.title_pause_s, "Nghỉ sau tiêu đề", 5)
         if body.split is not None:
-            sp = {**book["split"], **{k: v for k, v in body.split.items() if k in ("regex", "mode", "ops")}}
+            sp = {**book["split"], **{k: v for k, v in body.split.items() if k in ("regex", "mode", "ops", "selector")}}
             books.compile_split(sp["regex"])
+            if "selector" in sp:
+                sp["selector"] = books.validate_selector(sp["selector"])
             if sp["mode"] not in ("regex", "per_file"):
                 raise books.BookError("mode phải là 'regex' hoặc 'per_file'.")
             book["split"] = sp
@@ -722,6 +744,7 @@ async def books_preview(book_id: str, body: SplitIn | None = None):
     built, _ = await build_book(book_id, book_or_404(book_id), body or SplitIn())
     chapters = books.summarize(built)
     return {"chapters": chapters, "stats": built["stats"], "rules": built["rules"], "dropped": built["dropped"],
+            "masked_unknown": built["masked_unknown"], "warnings": built["warnings"],
             "total_chars": sum(c["chars"] for c in chapters)}
 
 

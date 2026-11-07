@@ -410,6 +410,10 @@
             <select id="bkMode"><option value="regex">Theo tiêu đề chương (regex)</option><option value="per_file">Mỗi file một chương</option></select></div>
           <div></div>
         </div>
+        <div id="bkHtmlBox" class="hidden">
+          <label class="lb">Khung chương HTML (selector: #id, .class, tag hoặc tag#id.class) — lấy từ khung này đến hết trang</label>
+          <input type="text" id="bkSelector" spellcheck="false" placeholder="#chapter-c" />
+        </div>
         <label class="lb">Regex tiêu đề chương (khớp từ đầu dòng, không phân biệt hoa thường)</label>
         <div class="mixrow"><input type="text" id="bkRegex" spellcheck="false" /><button class="btn" id="bkRegexDefault" type="button">Mặc định</button></div>
         <div class="mixbtns">
@@ -418,6 +422,8 @@
         </div>
         <div id="bkPreviewBox" class="hidden" style="margin-top:12px">
           <div class="hint" id="bkStats"></div>
+          <div class="qwarn" id="bkWarnings"></div>
+          <div id="bkMaskedBox"></div>
           <div id="bkRuleBox" style="margin-top:8px"></div>
           <div id="bkRows"></div>
           <div class="dlgbtns"><button class="btn pri" id="bkConfirm" type="button">Xác nhận tách chương</button></div>
@@ -466,8 +472,8 @@
   <dialog id="bookDlg">
     <form id="bookForm" method="dialog">
       <h3>Nhập truyện</h3>
-      <label class="lb">File truyện (.txt hoặc .epub, chọn nhiều file .txt nếu mỗi file là một chương)</label>
-      <input type="file" id="bookFiles" accept=".txt,.text,.epub" multiple />
+      <label class="lb">File truyện (.txt, .epub, hoặc .html / .htm / .zip chứa các file html chương đã lưu từ trình duyệt; chọn nhiều file nếu mỗi file là một chương)</label>
+      <input type="file" id="bookFiles" accept=".txt,.text,.epub,.html,.htm,.zip" multiple />
       <div class="hint">Tự dò encoding UTF-8 / UTF-16 / GB18030 / Windows-1258.</div>
       <label class="lb">Tên truyện (để trống: lấy từ file)</label>
       <input type="text" id="bookTitleIn" maxlength="200" />
@@ -1375,6 +1381,7 @@ const bkMsg = (t, cls = "") => { $("bookMsg").textContent = t; $("bookMsg").clas
 const fmtDur = (s) => (s >= 3600 ? `${(s / 3600).toFixed(1)} giờ` : s >= 60 ? `${Math.round(s / 60)} phút` : `${s} giây`);
 const STAT_LABEL = { control_chars: "dòng đã chuẩn hoá ký tự", url_lines: "dòng URL đã bỏ", credit_lines: "dòng nguồn/dịch giả đã bỏ",
   separators: "dấu ngăn cảnh → [nghỉ]", dup_lines: "dòng trùng đã bỏ", join_lines: "dòng đã gộp", custom: "chỗ thay thế tuỳ chỉnh",
+  unmask: "từ bị che (*) đã khôi phục", join_numbers: "số bị tách đã ghép", blank_lines: "dòng trống đã bỏ",
   quotes: "dòng đã chuẩn hoá ngoặc kép", ellipsis: "dòng đã chuẩn hoá dấu ba chấm" };
 const STATUS_LABEL = { pending: "chưa tạo", queued: "đang chờ", running: "đang tạo", done: "đã xong", exported: "đã xuất", error: "lỗi" };
 const fmtSize = (b) => b >= 1073741824 ? (b / 1073741824).toFixed(2) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
@@ -1416,6 +1423,7 @@ async function openBook(id) {
   $("bkNorm").checked = b.normalize; $("bkReadTitle").checked = b.read_title;
   $("bkParaPause").value = b.paragraph_pause_s ?? 0.6; $("bkTitlePause").value = b.title_pause_s ?? 1.2;
   $("bkMode").value = b.split.mode; $("bkRegex").value = b.split.regex;
+  $("bkSelector").value = b.split.selector || "#chapter-c"; $("bkHtmlBox").classList.toggle("hidden", !b.sources.some(s => s.kind === "html"));
   const key = `${b.voice.engine}|${b.voice.voice}`, sel = $("bkVoice");
   sel.replaceChildren(...bk.voices.map(v => voiceOpt(mixLabel(v), v, diaKey(v))));
   if (![...sel.options].some(o => o.value === key)) sel.prepend(new Option(`${b.voice.voice} (không có trong danh sách)`, key));
@@ -1471,7 +1479,7 @@ function renderCustom() {
   }));
 }
 
-const bkBody = () => ({ regex: $("bkRegex").value, mode: $("bkMode").value, ops: bk.ops, clean: bk.clean, exceptions: bk.exceptions });
+const bkBody = () => ({ regex: $("bkRegex").value, mode: $("bkMode").value, ops: bk.ops, selector: $("bkSelector").value || null, clean: bk.clean, exceptions: bk.exceptions });
 
 const ruleLabel = (name) => name === "custom" ? "Quy tắc tuỳ chỉnh" : (bk.book.rules_catalog.find(r => r.name === name)?.label || name);
 
@@ -1495,6 +1503,31 @@ function exRow(name, ex) {
     renderExceptions(); bkPreview();
   }) : h("span");
   return h("div", "exrow", h("div", "", h("div", "hint", where), ...lines), act);
+}
+
+function renderPreviewExtras() {
+  const p = bk.prev, hasHtml = bk.book.sources.some(s => s.kind === "html");
+  $("bkWarnings").replaceChildren(...(p.warnings || []).map(w => h("div", "", "⚠ " + w)));
+  const box = [];
+  const unknown = p.masked_unknown || [];
+  if (unknown.length) {
+    box.push(h("div", "hint", `Còn ${unknown.length} từ bị che bằng dấu * chưa có trong từ điển (data/masked_words.json). Nhập từ đúng rồi bấm Lưu: từ được thêm vào từ điển và áp dụng lại ngay.`));
+    for (const u of unknown) {
+      const inp = document.createElement("input"); inp.type = "text"; inp.placeholder = "từ đúng là…"; inp.style.width = "160px";
+      const save = btn("Lưu", "Thêm vào từ điển từ bị che và xem trước lại", async () => {
+        if (!inp.value.trim()) return;
+        try {
+          await qPost("/api/masked-words", { masked: u.word, correct: inp.value });
+          bkMsg(`Đã thêm "${inp.value.trim()}" vào từ điển từ bị che.`, "ok");
+          bkPreview();
+        } catch (e) { bkMsg(e.message, "err"); }
+      });
+      box.push(h("div", "exrow", h("div", "", h("b", "", u.word), h("span", "bm", ` ${u.count} lần · chương ${u.chapter}`), h("div", "hint", u.example)),
+        h("div", "bact", inp, save)));
+    }
+  }
+  if (hasHtml) box.push(h("div", "hint", "Lỗi chính tả do người dịch (tên riêng sai, từ viết nhầm…) không được tự sửa: hãy thêm vào Từ điển phát âm của truyện ở phần bên dưới."));
+  $("bkMaskedBox").replaceChildren(...box);
 }
 
 function renderRuleImpact() {
@@ -1528,6 +1561,7 @@ function renderPreview() {
     (p.dropped ? ` · bỏ ${p.dropped} đoạn rỗng/quá ngắn` : "") + (stats ? ` · Làm sạch: ${stats}` : "");
   $("bkConfirm").textContent = `Xác nhận tách ${p.chapters.length} chương`;
   renderRuleImpact();
+  renderPreviewExtras();
   $("bkRows").replaceChildren(...p.chapters.map((c, k) => {
     const acts = h("div", "bact", btn("Tách…", "Tách chương này tại một dòng", () => bkSplit(c)));
     if (k + 1 < p.chapters.length) acts.prepend(btn("Gộp với chương sau", "Gộp chương này với chương kế tiếp", () => bkMerge(k)));

@@ -1,0 +1,40 @@
+# Từ thường bị trang truyện che bằng dấu * (ví dụ "h*m m**n").
+# Mỗi dòng một từ hoặc cụm từ, viết đúng chính tả có dấu. Cụm dài được ưu tiên khớp trước.
+# Thêm dòng mới khi script báo "còn từ bị che chưa khôi phục".
+ham muốn
+kích thích
+dục vọng
+khiêu dâm
+tình dục
+làm tình
+khỏa thân
+khoả thân
+lõa thể
+quan hệ
+cởi truồng
+gợi cảm
+động dục
+dâm đãng
+dâm dục
+hiếp dâm
+cưỡng hiếp
+mại dâm
+thân thể
+ngực
+mông
+liếm
+hôn
+rên rỉ
+thở dốc
+nóng bỏng
+khoái cảm
+cao trào
+giết người
+ma túy
+ma tuý
+thuốc phiện
+tự sát
+đâm
+chết tiệt
+khốn kiếp
+mẹ kiếp

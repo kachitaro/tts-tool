@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
+import html_import
 import library
 
 BOOKS = library.DATA / "books"
@@ -38,7 +39,9 @@ MIN_CHAPTER_CHARS = 20       # chương ngắn hơn (mục lục, trang bìa) b�
 MIN_INTRO_CHARS = 100        # phần trước chương đầu tiên chỉ giữ nếu đủ dài ("Mở đầu")
 MAX_TITLE_CHARS = 150        # dòng dài hơn không coi là tiêu đề chương
 CHARS_PER_SEC = 15.0         # ước tính tốc độ đọc (đo: "Xin chào các bạn." ≈ 1,1 s); 6c sẽ thay bằng RTF đo thật
-SOURCE_EXTS = {".txt": "txt", ".text": "txt", ".epub": "epub"}
+SOURCE_EXTS = {".txt": "txt", ".text": "txt", ".epub": "epub", ".html": "html", ".htm": "html"}
+MASKED_PATH = library.DATA / "masked_words.json"       # từ điển từ bị che bằng dấu * (khởi tạo từ scripts/masked_words.txt)
+MASKED_SEED = Path(__file__).resolve().parent / "scripts" / "masked_words.txt"
 _lock = threading.Lock()
 
 
@@ -69,6 +72,9 @@ RULES: list[tuple[str, str]] = [
     ("separators", "Dòng chỉ có dấu ngăn cảnh (***, ---, ~~~, ooo, ♦…) → [nghỉ Ns]"),
     ("dup_lines", "Bỏ dòng trùng lặp (liền nhau, hoặc lặp ở nhiều chương như đầu/cuối trang)"),
     ("join_lines", "Gộp dòng bị ngắt giữa câu (dòng sau bắt đầu bằng chữ thường)"),
+    ("unmask", "Khôi phục từ bị che bằng dấu * (h*m m**n → ham muốn) theo từ điển data/masked_words.json"),
+    ("join_numbers", "Ghép số bị tách (2. 513 → 2.513)"),
+    ("blank_lines", "Bỏ dòng trống thừa (mỗi dòng là một đoạn văn)"),
 ]
 
 
@@ -77,7 +83,7 @@ def default_settings() -> dict:
         "read_title": True,
         "paragraph_pause_s": PARAGRAPH_PAUSE_S,  # nghỉ giữa hai đoạn văn khi đọc
         "title_pause_s": TITLE_PAUSE_S,          # nghỉ sau tiêu đề chương
-        "split": {"regex": DEFAULT_SPLIT_REGEX, "mode": "regex", "ops": []},
+        "split": {"regex": DEFAULT_SPLIT_REGEX, "mode": "regex", "ops": [], "selector": html_import.DEFAULT_SELECTOR},
         "clean": {"rules": {name: True for name, _ in RULES}, "custom": [], "separator_pause": 1.5},
         "exceptions": [],  # [{rule, line}]: quy tắc làm sạch không áp dụng cho dòng đó ("Giữ dòng này")
     }
@@ -122,6 +128,7 @@ class Doc:
     name: str
     text: str
     title: str = ""
+    meta: dict = field(default_factory=dict)   # nguồn HTML: {file, chapter_no, found, chars}
 
 
 class _Extract(html.parser.HTMLParser):
@@ -222,12 +229,73 @@ def _write_json(path: Path, data) -> None:
     library._write_json(path, data)
 
 
-def load_docs(book_id: str) -> list[Doc]:
+def read_html(name: str, data: bytes, selector: str = html_import.DEFAULT_SELECTOR) -> Doc:
+    """File HTML chương → Doc: văn bản từ khung chương đến hết trang, tiêu đề đã làm sạch (rỗng thì dùng tên file)."""
+    title_raw, body, found = html_import.extract(decode_bytes(data)[0], selector)
+    title = html_import.clean_title(title_raw)
+    return Doc(Path(name).stem, body, title, {"file": name, "chapter_no": html_import.chapter_number(title, name),
+                                              "found": found, "chars": len(body.strip())})
+
+
+def validate_selector(selector: str) -> str:
+    try:
+        html_import.parse_selector(selector)
+    except ValueError as ex:
+        raise BookError(str(ex)) from ex
+    return selector.strip()
+
+
+def expand_zip(name: str, data: bytes) -> list[tuple[str, bytes]]:
+    """.zip → các file .html/.htm bên trong (bỏ thư mục, file ẩn, __MACOSX và file khác). Giới hạn dung lượng giải nén."""
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as ex:
+        raise BookError(f"'{name}' không phải file zip hợp lệ.") from ex
+    infos = [i for i in z.infolist() if not i.is_dir() and Path(i.filename).suffix.lower() in (".html", ".htm")
+             and not any(p.startswith((".", "__MACOSX")) for p in PurePosixPath(i.filename).parts)]
+    if not infos:
+        raise BookError(f"'{name}' không chứa file .html / .htm nào.")
+    if len(infos) > MAX_FILES or sum(i.file_size for i in infos) > MAX_UNZIPPED_BYTES or any(i.file_size > MAX_FILE_BYTES for i in infos):
+        raise BookError(f"'{name}' quá lớn khi giải nén.")
+    return [(i.filename, z.read(i)) for i in infos]
+
+
+def html_warnings(docs: list[Doc]) -> list[str]:
+    """Cảnh báo khi nhập HTML: không thấy khung chương, nội dung quá ngắn, trùng số chương, thiếu chương."""
+    items = [d for d in docs if d.meta.get("file")]
+    out: list[str] = []
+    for d in items:
+        if not d.meta["found"]:
+            out.append(f"{d.meta['file']}: không tìm thấy khung chương, đã lấy cả <body> (kiểm tra selector trong phần Tách chương).")
+        elif d.meta["chars"] < 200:
+            out.append(f"{d.meta['file']}: nội dung rất ngắn ({d.meta['chars']} ký tự), kiểm tra lại.")
+    by_no: dict[int, list[str]] = {}
+    for d in items:
+        if d.meta["chapter_no"] is not None:
+            by_no.setdefault(d.meta["chapter_no"], []).append(d.meta["file"])
+    for no, files in sorted(by_no.items()):
+        if len(files) > 1:
+            out.append(f"Trùng số chương {no}: {', '.join(files)}.")
+    if len(by_no) >= 2:
+        missing = [n for n in range(min(by_no), max(by_no) + 1) if n not in by_no]
+        if missing:
+            shown = ", ".join(map(str, missing[:30])) + (f" … và {len(missing) - 30} chương nữa" if len(missing) > 30 else "")
+            out.append(f"Thiếu chương: {shown}.")
+    unnumbered = sum(1 for d in items if d.meta["chapter_no"] is None)
+    if unnumbered:
+        out.append(f"{unnumbered} file không xác định được số chương (xếp cuối, theo tên file).")
+    return out
+
+
+def load_docs(book_id: str, selector: str | None = None) -> list[Doc]:
     book = get(book_id)
+    selector = selector or book["split"].get("selector") or html_import.DEFAULT_SELECTOR
     docs: list[Doc] = []
     for s in book["sources"]:
         raw = (_dir(book_id) / "source" / s["file"]).read_bytes()
-        if s["kind"] == "epub":
+        if s["kind"] == "html":
+            docs.append(read_html(s["name"], raw, selector))
+        elif s["kind"] == "epub":
             docs += read_epub(raw)[0]
         else:
             docs.append(Doc(Path(s["name"]).stem, decode_bytes(raw)[0]))
@@ -268,21 +336,36 @@ def delete(book_id: str) -> None:
 
 
 def import_files(files: list[tuple[str, bytes]], title: str, author: str, voice: dict) -> dict:
-    """Tạo truyện nháp từ các file .txt/.epub (giữ file gốc trong source/). Chưa tách chương."""
+    """Tạo truyện nháp từ các file .txt / .epub / .html / .htm / .zip (zip chứa html) — giữ file gốc trong source/. Chưa tách chương.
+    File HTML xếp theo số chương (trong tiêu đề, không có thì trong tên file), không theo bảng chữ cái."""
     if not files:
         raise BookError("Chưa chọn file nào.")
-    if len(files) > MAX_FILES:
-        raise BookError(f"Tối đa {MAX_FILES} file mỗi lần nhập.")
     for name, data in files:
-        if SOURCE_EXTS.get(Path(name).suffix.lower()) is None:
-            raise BookError(f"'{name}': chỉ nhận .txt và .epub.")
+        if Path(name).suffix.lower() != ".zip" and SOURCE_EXTS.get(Path(name).suffix.lower()) is None:
+            raise BookError(f"'{name}': chỉ nhận .txt, .epub, .html, .htm và .zip (chứa html).")
         if len(data) > MAX_FILE_BYTES:
             raise BookError(f"'{name}' quá lớn (tối đa {MAX_FILE_BYTES // 2**20} MB).")
-    files = sorted(files, key=lambda f: _natural_key(f[0]))
+    expanded: list[tuple[str, bytes]] = []
+    for name, data in files:
+        expanded += expand_zip(name, data) if Path(name).suffix.lower() == ".zip" else [(name, data)]
+    files = expanded
+    if len(files) > MAX_FILES:
+        raise BookError(f"Tối đa {MAX_FILES} file mỗi lần nhập.")
+
+    def order(f: tuple[str, bytes]):
+        if SOURCE_EXTS[Path(f[0]).suffix.lower()] == "html":
+            no = read_html(f[0], f[1]).meta["chapter_no"]
+            return (no if no is not None else float("inf"), _natural_key(f[0]))
+        return (float("inf"), _natural_key(f[0]))
+
+    files = sorted(files, key=order)
     sources, epub_meta = [], {}
     for i, (name, data) in enumerate(files, 1):
         kind = SOURCE_EXTS[Path(name).suffix.lower()]
-        if kind == "epub":
+        if kind == "html":
+            d = read_html(name, data)
+            info = {"encoding": "html", "title": d.title, "chapter_no": d.meta["chapter_no"], "chars": d.meta["chars"]}
+        elif kind == "epub":
             docs, meta = read_epub(data)
             epub_meta = epub_meta or meta
             info = {"encoding": "epub", "docs": len(docs)}
@@ -311,7 +394,7 @@ def import_files(files: list[tuple[str, bytes]], title: str, author: str, voice:
         _write_json(d / "book.json", book)
     docs = load_docs(book_id)
     # Gợi ý chế độ tách: nhiều file hoặc regex không tìm thấy ≥ 2 chương mà có nhiều tài liệu → mỗi file một chương
-    if len(files) > 1 or (len(docs) > 1 and len(split_regex(docs, book["split"]["regex"])) < 2):
+    if len(files) > 1 or any(s["kind"] == "html" for s in sources) or (len(docs) > 1 and len(split_regex(docs, book["split"]["regex"])) < 2):
         book["split"]["mode"] = "per_file"
     save(book)
     return book
@@ -405,6 +488,7 @@ _ELLIPSIS = re.compile(r"\.{3,}|…{2,}|。{2,}|\.\s?\.\s?\.(?:\s?\.)*")
 _FANCY = "◆◇♦♢※★☆●○■□▪❖✦✧✱✲§"
 _SEP = re.compile(
     r"^(?:[*＊\-–—_=~～#+·•]\s*){3,}$|^(?:[oO]\s*){3,}$|^(?:[" + re.escape(_FANCY) + r"]\s*)+$"
+    r"|^(?=.*[=\-–—_~*•·])(?=(?:\s*\S){3})[\s=\-–—_~*•·oO]+$"   # trộn: "--- ------oOo---- -----"
 )
 _PAUSE_LINE = re.compile(r"^\[nghỉ [^\]]*\]$", re.IGNORECASE)
 _TERMINATORS = set(".!?…\"”'’)]}。！？:;」』»")
@@ -457,8 +541,10 @@ def validate_exceptions(items) -> list[dict]:
 class Ctx:
     """Gom thống kê + dòng ví dụ của từng quy tắc trong một lần build, và tra ngoại lệ."""
 
-    def __init__(self, exceptions: list[dict]) -> None:
+    def __init__(self, exceptions: list[dict], masked_words: list[str] | None = None) -> None:
         self.exc = {(e["rule"], e["line"]) for e in exceptions}
+        self.unmask_patterns = html_import.build_unmask_patterns(masked_words or [])
+        self.masked_unknown: dict[str, dict] = {}   # từ còn bị che chưa khôi phục được → {count, chapter, title, example}
         self.stats: dict = {}
         self.events: dict[str, list[dict]] = {}
         self.chapter = 0
@@ -493,6 +579,16 @@ def clean_lines(lines: list[str], cfg: dict, ctx: Ctx, boiler: set[str]) -> list
     out: list[str] = []
     for raw in lines:
         s0 = s = raw.strip()
+        if s and rules["unmask"] and "*" in s and not ctx.keep("unmask", s0):
+            t = html_import.unmask(s, ctx.unmask_patterns)
+            if t != s:
+                ctx.hit("unmask", s0, s0, t)
+                s = t
+        if s and rules["join_numbers"] and not ctx.keep("join_numbers", s0):
+            t = html_import.join_split_numbers(s)
+            if t != s:
+                ctx.hit("join_numbers", s0, s0, t)
+                s = t
         if s and rules["quotes"] and not ctx.keep("quotes", s0):
             t = s.translate(_QUOTES)
             if t != s:
@@ -541,8 +637,31 @@ def clean_lines(lines: list[str], cfg: dict, ctx: Ctx, boiler: set[str]) -> list
                     after = r["replace"]
                 ctx.hit("custom", None, m.group(0)[:300], after[:300])
             text = rx.sub(r["replace"], text)
-    text = re.sub(r"\n{3,}", "\n\n", text).strip("\n")  # tối đa một dòng trống giữa các đoạn
-    return text.split("\n") if text else []
+    if rules["blank_lines"]:  # mỗi dòng là một đoạn văn
+        lines = text.strip("\n").split("\n") if text.strip("\n") else []
+        for i, s in enumerate(lines):
+            if not s and 0 < i < len(lines) - 1:
+                ctx.hit("blank_lines", None, f"(dòng trống giữa «{lines[i - 1][-40:]}» và «{next((x for x in lines[i + 1:] if x), '')[:40]}»)")
+        lines = [s for s in lines if s]
+    else:
+        text = re.sub(r"\n{3,}", "\n\n", text).strip("\n")  # tối đa một dòng trống giữa các đoạn
+        lines = text.split("\n") if text else []
+    if rules["separators"]:  # ngăn cảnh ở đầu / cuối chương không ngăn gì; ngăn cảnh liên tiếp chỉ giữ một
+        tidy: list[str] = []
+        for s in lines:
+            if _PAUSE_LINE.match(s) and (not tidy or _PAUSE_LINE.match(tidy[-1])):
+                continue
+            tidy.append(s)
+        while tidy and _PAUSE_LINE.match(tidy[-1]):
+            tidy.pop()
+        lines = tidy
+    if rules["unmask"]:  # từ còn dấu * mà từ điển chưa có: báo để người dùng điền "từ đúng là…"
+        for s in lines:
+            if "*" in s and not _PAUSE_LINE.match(s):
+                for tok in html_import.find_masked(s):
+                    e = ctx.masked_unknown.setdefault(tok, {"count": 0, "chapter": ctx.chapter, "title": ctx.title, "example": s[:300]})
+                    e["count"] += 1
+    return lines
 
 
 def _clean_doc_chars(d: Doc, ctx: Ctx) -> None:
@@ -564,13 +683,37 @@ def _clean_doc_chars(d: Doc, ctx: Ctx) -> None:
     d.text = "\n".join(new_lines)
 
 
+def load_masked() -> list[str]:
+    """Từ điển từ bị che: data/masked_words.json; chưa có thì khởi tạo từ scripts/masked_words.txt."""
+    try:
+        return [str(w) for w in json.loads(MASKED_PATH.read_text(encoding="utf-8"))]
+    except (OSError, ValueError):
+        words = html_import.load_masked_words(MASKED_SEED)
+        MASKED_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(MASKED_PATH, words)
+        return words
+
+
+def add_masked_word(masked: str, correct: str) -> list[str]:
+    """Thêm `correct` vào từ điển nếu `masked` đúng là nó bị che bớt chữ (m**n → muốn). Raise BookError nếu không khớp."""
+    masked, correct = unicodedata.normalize("NFC", masked.strip()), unicodedata.normalize("NFC", correct.strip())
+    if not html_import.masked_matches(masked, correct):
+        raise BookError(f"'{correct}' không khớp với '{masked}': các chữ không bị che phải giống nhau và số chữ phải bằng nhau.")
+    with _lock:
+        words = load_masked()
+        if correct.lower() not in {w.lower() for w in words}:
+            words.append(correct)
+            _write_json(MASKED_PATH, words)
+    return words
+
+
 def build(docs: list[Doc], settings: dict) -> dict:
     """Tách chương + làm sạch → {"chapters": [{n, title, text}], "stats": {...}, "rules": {tên: {count, examples}},
     "dropped": số chương rỗng bị bỏ}. settings: {"split": {regex, mode, ops}, "clean": {...}, "exceptions": [...]}."""
     split, clean = settings["split"], validate_clean(settings["clean"])
     if split["mode"] not in ("regex", "per_file"):
         raise BookError("mode phải là 'regex' hoặc 'per_file'.")
-    ctx = Ctx(validate_exceptions(settings.get("exceptions")))
+    ctx = Ctx(validate_exceptions(settings.get("exceptions")), load_masked() if clean["rules"]["unmask"] else [])
     for d in docs:
         if clean["rules"]["control_chars"]:
             _clean_doc_chars(d, ctx)
@@ -594,15 +737,19 @@ def build(docs: list[Doc], settings: dict) -> dict:
         chapters.append({"n": len(chapters) + 1, "title": title, "text": text, "raw": i})
     rules = {name: {"count": ctx.stats.get(name, 0), "examples": ctx.events.get(name, [])}
              for name in [n for n, _ in RULES] + ["custom"] if ctx.stats.get(name)}
-    return {"chapters": chapters, "stats": ctx.stats, "rules": rules, "dropped": dropped}
+    unknown = [{"word": w, **v} for w, v in sorted(ctx.masked_unknown.items(), key=lambda kv: (-kv[1]["count"], kv[0]))][:200]
+    return {"chapters": chapters, "stats": ctx.stats, "rules": rules, "dropped": dropped, "masked_unknown": unknown,
+            "warnings": html_warnings(docs)}
 
 
 def overrides(book: dict, body: dict) -> dict:
     """Cài đặt hiệu lực = cài đặt đã lưu, ghi đè bởi body (regex, mode, ops, clean, exceptions) — dùng cho xem trước."""
     split = dict(book["split"])
-    for k in ("regex", "mode", "ops"):
+    for k in ("regex", "mode", "ops", "selector"):
         if body.get(k) is not None:
             split[k] = body[k]
+    if "selector" in split:
+        split["selector"] = validate_selector(split["selector"])
     exceptions = body["exceptions"] if body.get("exceptions") is not None else book.get("exceptions", [])
     return {"split": split, "clean": body.get("clean") or book["clean"], "exceptions": exceptions}
 
