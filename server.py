@@ -71,7 +71,7 @@ def check_lib_voice(e, voice: str) -> None:
     try:
         meta = library.get(voice[len(library.LIB_PREFIX) :])
     except library.NotFound:
-        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
+        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.") from None
     if meta["engine"] != e.id:
         raise HTTPException(
             400, f"Giọng này thuộc engine '{meta['engine']}', không dùng được với '{e.id}'."
@@ -101,12 +101,12 @@ async def add_to_library(e, data: bytes, consent: bool, **fields) -> dict:
         wav, sr = await anyio.to_thread.run_sync(library.normalize_reference, data)
         meta = library.create(engine=e.id, wav=wav, sr=sr, consent=consent, **fields)
     except library.LibraryError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     try:
         await anyio.to_thread.run_sync(e.prepare_reference, library.ref_path(meta["id"]))
     except Exception as ex:
         library.delete(meta["id"])
-        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
+        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}") from ex
     return meta
 
 
@@ -217,14 +217,16 @@ async def settings_put(body: SettingsIn):
         try:
             known = {v["id"] for v in await engine_voices(e)}
         except Exception as ex:
-            raise HTTPException(e.error_status, f"Không kiểm tra được danh sách giọng: {ex}")
+            raise HTTPException(
+                e.error_status, f"Không kiểm tra được danh sách giọng: {ex}"
+            ) from ex
         if voice not in known:
             raise HTTPException(400, f"Không có giọng '{voice}'.")
         dv = {"engine": e.id, "voice": voice}
     try:
         return settings.save(dv, body.notify)
     except settings.SettingsError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 @app.get("/api/overview")
@@ -312,7 +314,7 @@ async def voices(engine: str):
     try:
         return await engine_voices(e)
     except Exception as ex:
-        raise HTTPException(500, f"Không nạp được {e.name}: {ex}")
+        raise HTTPException(500, f"Không nạp được {e.name}: {ex}") from ex
 
 
 @app.post("/api/favorites")
@@ -320,7 +322,7 @@ def favorite(engine: str = Form(...), voice: str = Form(...), favorite: bool = F
     try:
         library.set_favorite(engine, voice, favorite)
     except library.NotFound:
-        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
+        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.") from None
     return {"engine": engine, "voice": voice, "favorite": favorite}
 
 
@@ -370,7 +372,7 @@ async def tts(
         try:
             text_normalize.split_pauses(text)
         except ValueError as ex:
-            raise HTTPException(400, str(ex))
+            raise HTTPException(400, str(ex)) from ex
 
     warnings: list[str] = []
     extra_files: dict[str, bytes] = {}
@@ -406,7 +408,7 @@ async def tts(
     except HTTPException:
         raise
     except Exception as ex:
-        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
+        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}") from ex
     finally:
         if tmp_path:
             Path(tmp_path).unlink(missing_ok=True)
@@ -463,13 +465,13 @@ async def build_mix(e, voice_a: str, voice_b: str, slider: float, variant: str) 
         try:
             library.check_mixable(v)
         except library.LibraryError as ex:
-            raise HTTPException(400, str(ex))
+            raise HTTPException(400, str(ex)) from ex
     try:
         return await e.mix(voice_a, voice_b, e.slider_to_alpha(slider), variant)
     except ValueError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     except Exception as ex:
-        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
+        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}") from ex
 
 
 @app.post("/api/mix")
@@ -494,7 +496,7 @@ async def mix_preview(
             voice_data=data,
         )
     except Exception as ex:
-        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
+        raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}") from ex
     return Response(audio, media_type=mime, headers={"X-Mix-Alpha": f"{data['alpha']:.3f}"})
 
 
@@ -537,7 +539,7 @@ async def mix_save(
             description=description,
         )
     except library.LibraryError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     return lib_entry(meta)
 
 
@@ -597,9 +599,9 @@ def library_patch(
             )
         )
     except library.NotFound:
-        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
+        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.") from None
     except library.LibraryError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 @app.delete("/api/library/{voice_id}")
@@ -607,7 +609,7 @@ def library_delete(voice_id: str):
     try:
         library.delete(voice_id)
     except library.NotFound:
-        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
+        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.") from None
     return {"deleted": voice_id}
 
 
@@ -616,7 +618,7 @@ async def library_preview(voice_id: str):
     try:
         meta = library.get(voice_id)
     except library.NotFound:
-        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
+        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.") from None
     d = library.voice_dir(voice_id)
     e = get_engine(meta["engine"])
     # preview.<cache_tag>.<ext>: đổi precision / mode thì tên khác → tự sinh lại. Engine không có tag (edge) dùng preview.<ext>.
@@ -629,7 +631,7 @@ async def library_preview(voice_id: str):
         try:
             data, mime = await e.synthesize(PREVIEW_TEXT, library.LIB_PREFIX + voice_id, 0)
         except Exception as ex:
-            raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
+            raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}") from ex
         for old in d.glob("preview.*"):  # bản của tag khác (precision / mode cũ)
             old.unlink(missing_ok=True)
         cached = d / f"{stem}.{'mp3' if mime == 'audio/mpeg' else 'wav'}"
@@ -661,14 +663,14 @@ def parse_or_400(script: str) -> list:
     try:
         return dialogue.parse_script(script, MAX_CHARS)
     except dialogue.ScriptError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 def job_or_404(job_id: str):
     try:
         return dialogue.get_job(job_id)
     except KeyError:
-        raise HTTPException(404, "Không tìm thấy job (đã hết hạn hoặc sai id).")
+        raise HTTPException(404, "Không tìm thấy job (đã hết hạn hoặc sai id).") from None
 
 
 @app.post("/api/dialogue/parse")
@@ -762,7 +764,7 @@ async def dialogue_regen(job_id: str, i: int, req: LineRegenIn | None = None):
     try:
         await dialogue.regen_line(job, i, req.seed if req else None)
     except dialogue.Busy as ex:
-        raise HTTPException(409, str(ex))
+        raise HTTPException(409, str(ex)) from ex
     return dialogue.job_info(job)
 
 
@@ -776,7 +778,7 @@ def projects_save(data: dict):
     try:
         return dialogue.save_project(data)
     except (dialogue.ProjectError, ValueError, TypeError) as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 @app.get("/api/projects/{project_id}")
@@ -784,7 +786,7 @@ def projects_get(project_id: str):
     try:
         return dialogue.get_project(project_id)
     except KeyError:
-        raise HTTPException(404, "Không tìm thấy dự án.")
+        raise HTTPException(404, "Không tìm thấy dự án.") from None
 
 
 @app.delete("/api/projects/{project_id}")
@@ -792,7 +794,7 @@ def projects_delete(project_id: str):
     try:
         dialogue.delete_project(project_id)
     except KeyError:
-        raise HTTPException(404, "Không tìm thấy dự án.")
+        raise HTTPException(404, "Không tìm thấy dự án.") from None
     return {"deleted": project_id}
 
 
@@ -820,7 +822,7 @@ def book_or_404(book_id: str) -> dict:
     try:
         return books.get(book_id)
     except books.NotFound:
-        raise HTTPException(404, "Không tìm thấy truyện.")
+        raise HTTPException(404, "Không tìm thấy truyện.") from None
 
 
 def busy_check(book_id: str) -> None:
@@ -869,7 +871,7 @@ async def build_book(book_id: str, book: dict, body: SplitIn) -> tuple[dict, dic
             )
         )
     except books.BookError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     return built, settings
 
 
@@ -895,7 +897,7 @@ async def books_import(
             books.import_files, data, title, author, default_book_voice()
         )
     except books.BookError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 @app.get("/api/masked-words")
@@ -914,7 +916,7 @@ def masked_words_add(body: MaskedIn):
     try:
         return books.add_masked_word(body.masked, body.correct)
     except books.BookError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 @app.get("/api/books/{book_id}")
@@ -985,7 +987,7 @@ def books_patch(book_id: str, body: BookPatch):
                 "voice": str(dv["voice"]),
             }
     except (books.BookError, lexicon.LexiconError) as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     books.save(book)
     return book
 
@@ -1023,7 +1025,7 @@ async def books_confirm(book_id: str, body: SplitIn | None = None):
     try:
         return books.confirm(book_id, built, settings)
     except books.BookError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 @app.get("/api/books/{book_id}/chapters")
@@ -1046,7 +1048,7 @@ def books_chapter(book_id: str, n: int):
     try:
         meta, body = books.chapter_text(book_id, n)
     except books.NotFound:
-        raise HTTPException(404, "Không có chương này.")
+        raise HTTPException(404, "Không có chương này.") from None
     return {**meta, "text": body, "reading_text": books.reading_text(book, meta, body)}
 
 
@@ -1076,7 +1078,7 @@ async def speak_book(book: dict, text: str, use_lexicon: bool = True) -> tuple[b
         )
         data, _ = await anyio.to_thread.run_sync(dialogue.encode_outputs, wav, False)
     except Exception as ex:
-        raise HTTPException(narr[0].error_status, f"{narr[0].name} lỗi: {ex}")
+        raise HTTPException(narr[0].error_status, f"{narr[0].name} lỗi: {ex}") from ex
     return data, len(wav) / dialogue.SR
 
 
@@ -1088,7 +1090,7 @@ async def books_sample(book_id: str, n: int, use_lexicon: bool = True):
     try:
         meta, body = books.chapter_text(book_id, n)
     except books.NotFound:
-        raise HTTPException(404, "Không có chương này.")
+        raise HTTPException(404, "Không có chương này.") from None
     text = narrate.join_paras(books.excerpt_paras(books.paragraphs(book, meta, body), 300))
     data, seconds = await speak_book(book, text, use_lexicon)
     return Response(
@@ -1156,7 +1158,7 @@ def lexicon_put(entries: list[dict]):
     try:
         return lexicon.save_global(entries)
     except lexicon.LexiconError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
 
 
 # ───────────────────────────── lịch sử ─────────────────────────────
@@ -1179,7 +1181,7 @@ def history_audio(item_id: str, fmt: str = ""):
     try:
         path, ext = history.audio_path(item_id, fmt or None)
     except KeyError:
-        raise HTTPException(404, "Không tìm thấy bản trong lịch sử.")
+        raise HTTPException(404, "Không tìm thấy bản trong lịch sử.") from None
     return FileResponse(
         path, media_type="audio/mpeg" if ext == "mp3" else "audio/wav", filename=f"giong-noi.{ext}"
     )
@@ -1190,7 +1192,7 @@ def history_delete(item_id: str):
     try:
         history.delete(item_id)
     except KeyError:
-        raise HTTPException(404, "Không tìm thấy bản trong lịch sử.")
+        raise HTTPException(404, "Không tìm thấy bản trong lịch sử.") from None
     return {"deleted": item_id}
 
 
@@ -1228,7 +1230,7 @@ async def books_trial(book_id: str, n: int, body: TrialIn | None = None):
     try:
         meta, text = books.chapter_text(book_id, n)
     except books.NotFound:
-        raise HTTPException(404, "Không có chương này.")
+        raise HTTPException(404, "Không có chương này.") from None
     narr, dlg = book_voices(book)
     excerpt = narrate.join_paras(
         books.excerpt_paras(
@@ -1238,7 +1240,7 @@ async def books_trial(book_id: str, n: int, body: TrialIn | None = None):
     try:
         t = bookq.Q.submit_trial(book, n, excerpt, narr, dlg)
     except (bookq.QueueError, ValueError) as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     return {"id": t.id, "total": t.total, "chars": len(excerpt)}
 
 
@@ -1327,7 +1329,7 @@ def queue_run(book_id: str, body: RunIn | None = None):
     try:
         res = bookq.Q.enqueue(book_id, ns, regenerate=body.regenerate)
     except bookq.QueueError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     if body.trial:
         book["trial"] = {"limit": len(ns), "done_at": None}
     elif (
@@ -1403,7 +1405,7 @@ async def books_chapter_audio(book_id: str, n: int, kbps: int = 64):
     try:
         meta, _ = books.chapter_text(book_id, n)
     except books.NotFound:
-        raise HTTPException(404, "Không có chương này.")
+        raise HTTPException(404, "Không có chương này.") from None
     if meta.get("status") != "done" or not books.chapter_audio(book_id, n).is_file():
         raise HTTPException(409, "Chương này chưa được tạo audio.")
     try:
@@ -1411,7 +1413,7 @@ async def books_chapter_audio(book_id: str, n: int, kbps: int = 64):
             exporter.chapter_mp3, book, meta, kbps, book["chapters"]["count"]
         )
     except exporter.ExportError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     return FileResponse(
         path,
         media_type="audio/mpeg",
@@ -1431,7 +1433,7 @@ async def books_export(book_id: str, body: ExportIn):
     try:
         j = exporter.start(book, body.kind, body.chapters, body.kbps)
     except exporter.ExportError as ex:
-        raise HTTPException(400, str(ex))
+        raise HTTPException(400, str(ex)) from ex
     return {"id": j.id, "total": j.total}
 
 
@@ -1460,7 +1462,7 @@ def books_export_file(book_id: str, name: str):
     try:
         path = exporter.file_path(book_id, name)
     except exporter.ExportError as ex:
-        raise HTTPException(404, str(ex))
+        raise HTTPException(404, str(ex)) from ex
     return FileResponse(
         path,
         filename=path.name,

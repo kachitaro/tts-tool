@@ -5,6 +5,5 @@ line-length = 100
 select = ["E", "F", "I", "B", "UP"]
 ignore = [
   "E501",  # dòng dài: `ruff format` đã xuống dòng phần code; còn lại là chuỗi / chú thích tiếng Việt, cắt ra khó đọc hơn
-  "B904",  # `raise ... from`: 46 chỗ trong server.py (HTTPException trong except); thêm `from` đổi chuỗi nguyên nhân của lỗi, không phải dọn dẹp thuần
   "B008",  # FastAPI dùng Form()/File() làm giá trị mặc định tham số: đúng theo thiết kế của FastAPI
 ]

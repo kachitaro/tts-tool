@@ -218,7 +218,7 @@ class BookQueue:
             try:
                 meta, _ = books.chapter_text(book_id, n)
             except books.NotFound:
-                raise QueueError(f"Không có chương {n}.")
+                raise QueueError(f"Không có chương {n}.") from None
             key = (book_id, n)
             if key == running_key:
                 skipped.append(n)
@@ -547,7 +547,9 @@ class BookQueue:
         )
         self.running.update(seg_total=len(segs))
         gen_seconds = 0.0
-        for k, (seg, name) in enumerate(zip(texts, names)):  # noqa: B905  (độ dài hai danh sách luôn bằng nhau; strict= sẽ đổi hành vi)
+        for k, (seg, name) in enumerate(
+            zip(texts, names, strict=True)
+        ):  # names sinh 1-1 từ texts nên luôn bằng nhau
             path = pdir / name
             if not path.is_file():
                 if why := self._interrupted():

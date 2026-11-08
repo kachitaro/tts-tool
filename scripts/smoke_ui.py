@@ -221,10 +221,14 @@ async def main() -> None:
             if not os.path.exists(prof):
                 break
             time.sleep(0.25)
-        for _ in range(40):  # hàng đợi vừa bị huỷ có thể còn bận vài giây
+        for _ in range(
+            240
+        ):  # đoạn đang dựng dở phải xong mới dừng; lần đầu nạp model có thể mất hơn 20 giây
             if api.delete(f"/api/books/{bid}").status_code in (200, 404):
                 break
             time.sleep(0.5)
+        else:
+            report("dọn truyện thử của smoke_ui", f"không xoá được {bid} sau 120 giây")
 
 
 async def run(pg: Page, bid: str) -> None:
