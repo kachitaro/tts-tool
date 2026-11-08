@@ -1,5 +1,6 @@
 // Điều hướng theo dấu # (không tải lại trang). Mỗi màn: mount(root, params) → hàm dọn dẹp (tuỳ chọn).
 // Đường dẫn có tham số: "/sach/:id/kiem-tra". Đường dẫn chính xác được ưu tiên hơn đường dẫn có tham số.
+import { scrollPage } from "./dom.js";
 const routes = [];
 export const pending = { reuse: null };   // "Dùng lại" từ Lịch sử → màn Đọc văn bản nhận
 let cleanup = null, current = null;
@@ -31,7 +32,7 @@ export function render() {
   if (typeof cleanup === "function") cleanup();
   root.replaceChildren();
   cleanup = hit.r.mount(root, hit.params);
-  if (current !== path) window.scrollTo(0, 0);
+  if (current !== path) scrollPage(0);
   current = path;
   document.dispatchEvent(new CustomEvent("gv:route", { detail: path }));
 }

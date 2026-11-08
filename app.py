@@ -11,6 +11,8 @@ Vẫn chạy kiểu cũ được: python server.py rồi mở trình duyệt (d�
 
   app.py --selftest   khởi động server + cửa sổ ẩn, kiểm tra các luồng chính, đóng sạch (dùng trong scripts/smoke_test.sh)
   GV_DEBUG=1          bật menu chuột phải đầy đủ (có Inspect) và mở bảng debug
+  GV_DEBUG_CORNERS=1  viền đỏ quanh vùng bo góc cửa sổ (chụp màn hình kiểm tra trên máy thật)
+  GV_CORNER_RADIUS=N  ép bán kính bo góc (px) thay vì đọc từ GTK theme
 """
 
 from __future__ import annotations
@@ -212,10 +214,15 @@ class Prefs:
         self._timer.start()
 
 
+# màn chờ không nạp /css của server nên nhúng nguyên file bo góc (một nguồn duy nhất cho cả giao diện thật lẫn màn chờ)
+CORNER_CSS = (ROOT / "static" / "css" / "app-window.css").read_text(encoding="utf-8")
+
+
 def splash(msg: str, sub: str = "", detail: str = "", spinning: bool = True) -> str:
     esc = lambda t: t.replace("&", "&amp;").replace("<", "&lt;")  # noqa: E731
-    return f"""<!doctype html><html lang="vi"><meta charset="utf-8"><title>{APP_NAME}</title>
+    return f"""<!doctype html><html lang="vi" class="app-window"><meta charset="utf-8"><title>{APP_NAME}</title>
 <style>
+{CORNER_CSS}
 :root{{--bg:#f7f6f3;--text:#1d1b16;--muted:#6a665b;--accent:#2f6f5e;--line:#e3e0d8}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#14161a;--text:#eceae4;--muted:#a29e92;--accent:#58b79f;--line:#333842}}}}
 html,body{{height:100%;margin:0;background:var(--bg);color:var(--text);font:18px/1.5 system-ui,"Noto Sans",sans-serif}}
@@ -453,7 +460,7 @@ class App:
                 part.replace(dest)
             except OSError as ex:
                 part.unlink(missing_ok=True)
-                raise HTTPException(500, f"Không ghi được file: {ex.strerror or ex}")
+                raise HTTPException(500, f"Không ghi được file: {ex.strerror or ex}") from ex
             return {"ok": True, "path": str(dest), "bytes": n}
 
         @fastapi_app.get("/_app/drop/{token}")
@@ -760,6 +767,7 @@ class App:
             if not DEBUG:
                 logging.getLogger("pywebview").setLevel(logging.WARNING)
             self.gtk.attach(self.window, debug=DEBUG, on_uris=self.on_uris)
+            self.gtk.install_corners(self.window, debug=os.getenv("GV_DEBUG_CORNERS") == "1")
             log.info("cửa sổ đã mở (màn chờ), %.1f giây từ lúc chạy", time.time() - self.t_start)
             self.start_server()
             self.wait_ready()
@@ -972,6 +980,37 @@ class App:
         def idle_close_allowed() -> None:
             assert self.on_closing() is True  # không có việc gì: cho đóng ngay
 
+        def rounded_corners() -> None:
+            g = self.gtk
+            assert g.is_square(g.Gdk.WindowState.MAXIMIZED) and g.is_square(g.Gdk.WindowState.TILED)
+            assert g.is_square(g.Gdk.WindowState.FULLSCREEN) and not g.is_square(
+                g.Gdk.WindowState(0)
+            )
+            t = time.time()
+            while time.time() - t < 10 and not self.js(
+                "document.documentElement.classList.contains('app-window')"
+            ):
+                time.sleep(0.2)
+            clip = "getComputedStyle(document.documentElement).clipPath"
+            assert self.js("document.documentElement.classList.contains('app-window')"), (
+                "trang không có class app-window"
+            )
+            assert "round" in str(self.js(clip)), self.js(
+                clip
+            )  # cửa sổ thường: góc dưới bị cắt tròn
+            radius = self.js("document.documentElement.style.getPropertyValue('--app-radius')")
+            assert radius == f"{g.theme_radius()}px", radius
+            self.js(
+                g.corners_script(g.theme_radius(), True, False)
+            )  # phóng to / ghép màn hình: không bo
+            assert self.js(clip) == "none", self.js(clip)
+            self.js(g.corners_script(g.theme_radius(), False, False))
+            assert "round" in str(self.js(clip))
+            html = splash(
+                "Đang khởi động…"
+            )  # màn chờ cũng bo góc: cùng quy tắc, nhúng từ chung một file
+            assert 'class="app-window"' in html and CORNER_CSS.strip() in html
+
         def zoom_keys() -> None:
             self.js(
                 "window.__z = null; window.pywebview.api.zoom('in').then(z => { window.__z = z; })"
@@ -1014,6 +1053,10 @@ class App:
             ),
             ("app: micro — getUserMedia không bị chặn quyền trong cửa sổ app", microphone_allowed),
             ("app: phóng to / thu nhỏ qua js_api, về mặc định", zoom_keys),
+            (
+                "app: bo góc dưới — class + clip-path + bán kính theo theme, không bo khi phóng to / ghép màn hình, màn chờ có cùng CSS",
+                rounded_corners,
+            ),
             (
                 "app: đang tạo mà đóng cửa sổ → chặn đóng + hộp hỏi “Chạy nền tiếp / Tạm dừng và thoát / Ở lại”",
                 dialog_when_busy,

@@ -29,6 +29,9 @@ export function fmtLeft(sec) {
   return mm ? `${hh} giờ ${mm} phút` : `${hh} giờ`;
 }
 
+/** Cuộn trang tới `top`. Trong app cửa sổ riêng body là chỗ cuộn (xem css/app-window.css), ngoài app là cả trang. */
+export const scrollPage = (top) => (document.documentElement.classList.contains("app-window") ? document.body : window).scrollTo({ top });
+
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 

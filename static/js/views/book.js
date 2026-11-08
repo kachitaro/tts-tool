@@ -1,5 +1,5 @@
 // Trang truyện = bảng điều khiển: tiến độ lớn, Tạm dừng / Tiếp tục, Tải về, danh sách chương, tên riêng, cài đặt.
-import { h, fmtLeft, sleep, sizeText } from "../dom.js";
+import { h, fmtLeft, sleep, sizeText, scrollPage } from "../dom.js";
 import { saveAs } from "../appenv.js";
 import { api, getJSON, sendJSON } from "../api.js";
 import { go } from "../router.js";
@@ -166,7 +166,7 @@ export function mountBook(root, { id }) {
         menuButton("⋯ Tạo nhiều chương", [{ label: "Tạo một khoảng chương…", hint: "Ví dụ chương 20 đến 40", onclick: rangeDialog },
           { label: "Tạo 5 chương chưa xong tiếp theo", onclick: () => start({ limit: 5 }) }], { aria: "Tạo nhiều chương" })),
       list.length ? h("div", { class: "chlist" }, ...rows.map(chapterRow)) : h("div", { class: "empty" }, h("p", { class: "muted" }, ts.filter === "all" ? "Truyện chưa có chương nào." : "Không có chương nào ở nhóm này.")),
-      h("div", { style: "margin-top:12px" }, Pager({ total: list.length, page: ts.page, onPage: (p) => { ts.page = p; paintChapters(); window.scrollTo({ top: content.offsetTop - 80 }); } })),
+      h("div", { style: "margin-top:12px" }, Pager({ total: list.length, page: ts.page, onPage: (p) => { ts.page = p; paintChapters(); scrollPage(content.offsetTop - 80); } })),
       h("p", { class: "hint" }, `Mỗi chương có nút ▶ để nghe ngay trong lúc đang tạo các chương khác. Đang hiện ${fmtN(rows.length)} trong ${fmtN(list.length)} chương.`));
   }
 

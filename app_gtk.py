@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -232,6 +233,117 @@ def attach(win, *, debug: bool, on_uris) -> None:
         wv.connect("drag-data-received", on_drag)
         if not debug:
             wv.get_settings().set_enable_developer_extras(False)
+
+    call_main(setup)
+
+
+# ───────────── bo góc cửa sổ ─────────────
+_SQUARE_STATES = (
+    Gdk.WindowState.MAXIMIZED
+    | Gdk.WindowState.FULLSCREEN
+    | Gdk.WindowState.TILED
+    | Gdk.WindowState.TOP_TILED
+    | Gdk.WindowState.RIGHT_TILED
+    | Gdk.WindowState.BOTTOM_TILED
+    | Gdk.WindowState.LEFT_TILED
+)
+_THEME_DIRS = ("~/.themes", "~/.local/share/themes", "/usr/share/themes")
+
+
+def theme_radius(default: int = 15) -> int:
+    """Bán kính góc `decoration` của GTK theme đang dùng. GTK3 không có API đọc border-radius, nên đọc thẳng CSS của theme
+    (theme Yaru nén CSS trong gtk.gresource): lấy giá trị đầu của `decoration { border-radius: A B C D }` (= góc trên trái).
+    Không đọc được thì dùng `default` = 15, số đo trên Yaru (CSS của theme ghi 15px; đo trên ảnh chụp góc trên trái cửa sổ ra 15–17)."""
+    try:
+        env = os.getenv("GV_CORNER_RADIUS")
+        if env:
+            return max(0, min(40, int(env)))
+        name = Gtk.Settings.get_default().props.gtk_theme_name
+        for d in _THEME_DIRS:
+            f = Path(d).expanduser() / name / "gtk-3.0" / "gtk.css"
+            if not f.is_file():
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+            imp = re.match(r'\s*@import url\("resource://(/[^"]+)"\)', text)
+            if imp and (f.parent / "gtk.gresource").is_file():
+                res = Gio.Resource.load(str(f.parent / "gtk.gresource"))
+                text = bytes(
+                    res.lookup_data(imp.group(1), Gio.ResourceLookupFlags.NONE).get_data()
+                ).decode()
+            m = re.search(r"(?m)^decoration\s*\{[^}]*?border-radius:\s*([\d.]+)px", text)
+            if m:
+                return round(float(m.group(1)))
+    except Exception:  # noqa: BLE001
+        pass
+    return default
+
+
+def is_square(state: Any) -> bool:
+    """Trạng thái cửa sổ không bo góc: phóng to, toàn màn hình, ghép nửa màn hình / ghép cạnh."""
+    return bool(state & _SQUARE_STATES)
+
+
+def corners_script(radius: int, square: bool, debug: bool) -> str:
+    return (
+        "(()=>{const r=document.documentElement;r.classList.add('app-window');"
+        f"r.classList.toggle('app-square',{str(square).lower()});r.classList.toggle('app-debug',{str(debug).lower()});"
+        f"r.style.setProperty('--app-radius','{radius}px');}})()"
+    )
+
+
+def install_corners(win: Any, *, debug: bool) -> None:
+    """Bo 2 góc dưới cho khớp 2 góc trên (xem static/css/app-window.css). Phần GTK ở đây:
+    - decoration bo cả 4 góc (bóng đổ và viền theo đúng hình), về 0 khi phóng to / ghép màn hình (GTK tự thêm class .maximized, .tiled…);
+    - nền cửa sổ, ScrolledWindow và WebKitWebView trong suốt để vùng trang cắt đi lộ ra đúng hình bo;
+    - mỗi lần trạng thái cửa sổ đổi: bật / tắt class app-square trên trang hiện tại và trên các trang nạp sau (UserScript)."""
+    bv = wait_view(win)
+    wv, w = bv.webview, win.native
+    radius = theme_radius()
+
+    def setup() -> None:
+        w.get_style_context().add_class(
+            "gv-main"
+        )  # chỉ cửa sổ chính; hộp "Lưu thành…" (cửa sổ khác) giữ nguyên giao diện
+        sq = ".maximized, .fullscreen, .tiled, .tiled-top, .tiled-right, .tiled-bottom, .tiled-left"
+        css = (
+            f"window.gv-main decoration {{ border-radius: {radius}px; }}\n"
+            + ",".join(f"window.gv-main{c} decoration" for c in sq.replace(" ", "").split(","))
+            + " { border-radius: 0; }\n"
+            "window.gv-main, window.gv-main scrolledwindow, window.gv-main scrolledwindow * "
+            "{ background-color: transparent; background-image: none; }\n"
+        )
+        if debug:
+            css += "window.gv-main decoration { box-shadow: 0 0 0 2px #f00; }\n"
+        p = Gtk.CssProvider()
+        p.load_from_data(css.encode())
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), p, Gtk.STYLE_PROVIDER_PRIORITY_USER
+        )
+        wv.set_background_color(Gdk.RGBA(0, 0, 0, 0))
+
+        def push(state: Any) -> None:
+            script = corners_script(radius, is_square(state), debug)
+            bv.manager.remove_all_scripts()
+            bv.manager.add_script(
+                WebKit2.UserScript.new(
+                    script,
+                    WebKit2.UserContentInjectedFrames.TOP_FRAME,
+                    WebKit2.UserScriptInjectionTime.START,
+                    None,
+                    None,
+                )
+            )
+            wv.run_javascript(script, None, None, None)
+
+        w.connect("window-state-event", lambda _w, ev: push(ev.new_window_state))
+        wv.connect(
+            "load-changed",
+            lambda _wv, ev: (
+                ev == WebKit2.LoadEvent.COMMITTED
+                and push(w.get_window().get_state() if w.get_window() else 0)
+            ),
+        )
+        push(w.get_window().get_state() if w.get_window() else 0)
 
     call_main(setup)
 

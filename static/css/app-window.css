@@ -1,0 +1,35 @@
+/* Chỉ dùng trong app cửa sổ riêng (app.py thêm class "app-window" lên <html>; trình duyệt thường không có class này nên không đổi gì).
+   GTK3 chỉ bo góc phần decoration, nội dung WebKit vẽ hình chữ nhật đè lên nên trang tự cắt 2 góc dưới (cắt cả phần fixed như
+   thanh phát). Vùng bị cắt trong suốt vì app_gtk.py đặt nền WebKitWebView + cửa sổ GTK trong suốt.
+   --app-radius do app.py đặt = bán kính góc decoration của GTK theme đang dùng. Cửa sổ phóng to / ghép nửa màn hình / toàn màn hình
+   thì app.py thêm class "app-square" để không bo. Mỗi giá trị cố ý nằm ở một chỗ này: màn chờ của app.py nhúng nguyên file. */
+/* html = đúng khung nhìn (cao 100%, không cuộn) và body là chỗ cuộn: clip-path cắt theo hộp của phần tử gốc, nếu để trang cuộn kiểu
+   thường thì hộp đó cao bằng cả tài liệu (ngắn hơn hoặc dài hơn cửa sổ) nên góc dưới không nằm đúng đáy cửa sổ. */
+html.app-window {
+  height: 100%;
+  overflow: hidden;
+  clip-path: inset(0 round 0 0 var(--app-radius, 15px) var(--app-radius, 15px));
+}
+html.app-window body {
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+html.app-window.app-square {
+  clip-path: none;
+}
+/* GV_DEBUG_CORNERS=1: viền đỏ đúng theo vùng bo (cùng viền đỏ ở decoration của GTK) để chụp màn hình kiểm tra */
+html.app-window.app-debug::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 3px solid #f00;
+  border-radius: 0 0 var(--app-radius, 15px) var(--app-radius, 15px);
+}
+html.app-window.app-square.app-debug::after {
+  border-radius: 0;
+}
