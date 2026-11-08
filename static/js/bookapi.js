@@ -25,6 +25,6 @@ export async function trial(id, n, { chars = 900, offset = 0 } = {}, onProgress 
 }
 
 /** "Tạo thử N chương": server tự dừng sau N chương và ghi book.trial = {limit, done_at}. */
-export const runTrial = (id, limit = 5) => runQueue(id, { limit, trial: true });
+export const startTrial = (id, limit = 5) => runQueue(id, { limit, trial: true });
 /** "Để sau" trên banner tạo thử. */
 export const dismissTrial = (id) => patchBook(id, { dismiss_trial: true });

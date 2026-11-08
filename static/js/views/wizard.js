@@ -3,13 +3,13 @@
 import { h, debounce } from "../dom.js";
 import { api, sendJSON } from "../api.js";
 import { go } from "../router.js";
-import { showError, toast, confirmBox, modal, switchEl } from "../ui.js";
+import { skeleton, showError, toast, confirmBox, modal, switchEl } from "../ui.js";
 import { engines, voices, prefs } from "../store.js";
 import { VoicePicker, keyOf, displayName, metaLine, previewVoice } from "../voicepicker.js";
 import { getSettings, effectiveDefault } from "../defaults.js";
 import { play } from "../player.js";
 import { askNotifyPermission } from "../overview.js";
-import { getBook, patchBook, previewBook, confirmBook, deleteBook, runQueue, runTrial, trial, queueOf } from "../bookapi.js";
+import { getBook, patchBook, previewBook, confirmBook, deleteBook, runQueue, startTrial, trial, queueOf } from "../bookapi.js";
 import { inferTitlePattern } from "../titlepattern.js";
 import { Pager, PAGE_SIZE } from "../pager.js";
 
@@ -319,7 +319,7 @@ export function mountWizardVoice(root, { id }) {
   let alive = true, book = null, E = {}, V = [], ST = null, st = null, q = null;
   const area = h("div", {});
   root.append(crumb("Thêm truyện"), h("h2", {}, "Chọn giọng và nghe thử"), h("p", { class: "lead", style: "margin-bottom:12px" }, "Bước 3 — chọn người sẽ đọc truyện cho bạn."), stepper(3, id), area);
-  area.append(h("p", { class: "muted" }, "Đang tải…"));
+  area.append(skeleton(4));
   (async () => {
     try { [book, E, V, ST, q] = await Promise.all([getBook(id), engines(), voices(), getSettings(), queueOf(id)]); } catch (e) { area.replaceChildren(); return showError(e); }
     if (!alive) return;
@@ -398,7 +398,7 @@ export function mountWizardVoice(root, { id }) {
       await saveSettings();
       const five = st.trial5 && book.chapters.count > 5;
       askNotifyPermission();
-      await (five ? runTrial(id, 5) : runQueue(id, {}));
+      await (five ? startTrial(id, 5) : runQueue(id, {}));
       prefs.set("voice-last", st.voice);
       toast(five ? "Bắt đầu tạo 5 chương đầu. Xong tool sẽ dừng để bạn nghe thử." : "Bắt đầu tạo sách nói. Bạn có thể đóng trang này, tool vẫn chạy.");
       go(`/sach/${id}`);

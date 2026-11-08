@@ -32,6 +32,8 @@ export function fmtLeft(sec) {
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
+export const sizeText = (b) => (b >= 2 ** 30 ? (b / 2 ** 30).toFixed(1).replace(".", ",") + " GB" : b >= 2 ** 20 ? (b / 2 ** 20).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
+
 // replaceChildren(null / false) mặc định in chữ "null" ra màn hình; bỏ qua các giá trị rỗng như h() vẫn làm.
 const nativeReplace = Element.prototype.replaceChildren;
 Element.prototype.replaceChildren = function (...nodes) { return nativeReplace.apply(this, nodes.filter((n) => n != null && n !== false)); };

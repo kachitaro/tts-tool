@@ -615,6 +615,11 @@ def t_pause_settings_api() -> None:
     state["pauses"] = bid
 
 
+def t_settings_info() -> None:
+    i = j(client.get(f"{B}/api/settings/info"))
+    assert i["segment_chars"] > 0 and i["cache_max_bytes"] > 0 and i["cache_bytes"] >= 0 and i["precision"] in ("fp32", "int8") and i["vieneu_mode"], i
+
+
 def t_settings_default_voice() -> None:
     assert j(client.get(f"{B}/api/settings")) == {"default_voice": None}
     vs = j(client.get(f"{B}/api/voices/vieneu"))
@@ -921,6 +926,7 @@ for name, fn in [
     ("API: nhập 3 file HTML, xem trước (thứ tự, cảnh báo, từ bị che), từ điển từ bị che, selector, zip", t_html_api),
     ("API: v2.1 GET /api/engines có precision", t_engines_precision_api),
     ("API: v2.1 mức nghỉ đoạn văn / tiêu đề trong cài đặt truyện, kiểm tra khoảng giá trị", t_pause_settings_api),
+    ("API: GET /api/settings/info (chế độ chạy, độ chính xác, cỡ đoạn, dung lượng bộ nhớ tạm — chỉ đọc)", t_settings_info),
     ("API: GET/PUT /api/settings — giọng mặc định (kiểm tra giọng, truyện mới dùng giọng đó, bỏ chọn)", t_settings_default_voice),
     ("API: mẫu tiêu đề suy ra từ một dòng ví dụ (node) được server chấp nhận và tìm đúng chương", t_title_pattern_inference_with_server),
     ("API: GET /api/overview (chỉ đọc: hàng đợi + truyện + tiến độ, current null khi rảnh)", t_overview_api),

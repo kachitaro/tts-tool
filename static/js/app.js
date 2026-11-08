@@ -2,6 +2,8 @@
 import { $, h, fmtLeft } from "./dom.js";
 import { route, startRouter, go } from "./router.js";
 import { initPlayer } from "./player.js";
+import { initShortcuts } from "./shortcuts.js";
+import { cleanupStorage } from "./store.js";
 import { overview, refreshOverview } from "./overview.js";
 import { openHistory, closeHistory } from "./history.js";
 import { openSettings } from "./settings.js";
@@ -42,6 +44,8 @@ $("#logo").addEventListener("click", () => go("/"));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHistory(); });
 document.addEventListener("gv:overview", paintRunning);
 
+cleanupStorage();
+initShortcuts();
 initPlayer();
 startRouter();
 refreshOverview();

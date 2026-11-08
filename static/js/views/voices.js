@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { explain } from "../errors.js";
 import { engines, voices, resetVoices, prefs } from "../store.js";
 import { VoicePicker, isMine, forgetPreview, displayName } from "../voicepicker.js";
-import { showError, toast, confirmBox, modal } from "../ui.js";
+import { skeleton, showError, toast, confirmBox, modal } from "../ui.js";
 import { go } from "../router.js";
 import { openAddVoice, choiceSeg, GENDERS, REGIONS } from "./voice-add.js";
 
@@ -34,7 +34,7 @@ function renameDialog(v, done) {
 }
 
 export function mountVoices(root) {
-  const body = h("div", {}, h("p", { class: "muted" }, "Đang tải danh sách giọng…"));
+  const body = h("div", {}, skeleton(6, { cards: true }));
   let eng = {}, alive = true;
   root.append(
     h("div", { class: "crumb" }, h("a", { href: "#/" }, "Trang chính"), " › ", h("span", {}, "Giọng đọc")),

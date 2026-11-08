@@ -31,6 +31,8 @@ export async function play({ src, title, sub = "" }) {
 }
 
 export function stop() { audio.pause(); }
+/** Phát / tạm dừng bằng phím Space (không làm gì nếu chưa có gì để phát). */
+export function toggle() { if (audio.src) audio.paused ? audio.play() : audio.pause(); }
 export const isPlaying = () => !audio.paused;
 
 export function initPlayer() {

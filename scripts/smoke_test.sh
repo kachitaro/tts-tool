@@ -198,18 +198,24 @@ check "xoá giọng clone" expect_status 200 -X DELETE "$B/api/library/${LIB#lib
 check "giọng đã xoá → 404" expect_status 404 "$B/api/library/${LIB#lib:}/preview"
 check "lịch sử giữ tên giọng đã xoá (voice_label + voice_deleted)" bash -c "curl -s '$B/api/history?kind=tts' | $PY -c \"import sys,json; m=[x for x in json.load(sys.stdin) if x.get('voice')=='$LIB']; assert m and m[0]['voice_label'] and m[0]['voice_deleted'] is True, m\""
 
-echo "== giao diện (khung mới: tệp tĩnh, giao diện cũ, tổng quan)"
+echo "== giao diện (khung tệp tĩnh, tổng quan)"
 check "GET / trả khung mới (module JS + tokens.css, không còn giao diện cũ)" bash -c "curl -s $B/ | grep -q 'type=\"module\" src=\"/js/app.js\"' && curl -s $B/ | grep -q '/css/tokens.css' && ! curl -s $B/ | grep -q 'id=\"tab-tts\"'"
 check "GET /css/tokens.css (text/css, có biến màu, no-cache)" bash -c "curl -sD - $B/css/tokens.css | tr -d '\r' | grep -qi '^content-type: text/css' && curl -s $B/css/tokens.css | grep -q -- '--accent' && curl -sD - -o /dev/null $B/css/tokens.css | tr -d '\r' | grep -qi '^cache-control: no-cache'"
 check "GET /js/app.js là JavaScript" bash -c "curl -sD - -o /dev/null $B/js/app.js | tr -d '\r' | grep -qiE '^content-type: (text|application)/(javascript|x-javascript)'"
-check "GET /legacy trả giao diện cũ (liên kết sâu #book, #lib-add)" bash -c "curl -s $B/legacy | grep -q 'Giao diện cũ' && curl -s $B/legacy | grep -q 'lib-add'"
 if command -v node >/dev/null; then
   check "mọi file static/js/**/*.js đúng cú pháp ES module" bash -c "for f in static/js/*.js static/js/views/*.js; do node --check --input-type=module < \$f || exit 1; done"
   check "errors.js: lỗi kỹ thuật → lời thường + cách khắc phục (node tests/js/errors.test.mjs)" node tests/js/errors.test.mjs
   check "mọi liên kết/điều hướng của giao diện mới khớp route, không còn liên kết tới /legacy (node tests/js/links.test.mjs)" node tests/js/links.test.mjs
   check "recorder.js: ngưỡng thời lượng mẫu giọng 3–10–30 giây (node tests/js/recorder.test.mjs)" node tests/js/recorder.test.mjs
+  check "tokens.css: tương phản chữ đạt WCAG AA, sáng + tối (node tests/js/contrast.test.mjs)" node tests/js/contrast.test.mjs
+  check "store.js: dọn localStorage — xoá khoá cũ, giữ khoá còn dùng (node tests/js/storage.test.mjs)" node tests/js/storage.test.mjs
   check "titlepattern.js: một dòng tiêu đề mẫu → mẫu tìm chương (node tests/js/titlepattern.test.mjs)" node tests/js/titlepattern.test.mjs
 fi
+
+echo "== giao diện trong Chrome headless (mọi route × 3 cỡ màn hình, lỗi JS, từ cấm, phím tắt)"
+$PY scripts/smoke_ui.py "$B" >"$WORK/ui.out" 2>&1
+while IFS= read -r l; do case "$l" in PASS*) ok "${l#PASS  }";; FAIL*) bad "${l#FAIL  }";; SKIP*) echo "$l";; esac; done <"$WORK/ui.out"
+grep -qE '^(PASS|FAIL|SKIP)  ' "$WORK/ui.out" || bad "smoke_ui.py không chạy được" "$(tail -3 "$WORK/ui.out" | tr '\n' ' ')"
 
 echo "== sách nói (nhập .txt/.epub, tách chương, làm sạch, ngăn cảnh → [nghỉ])"
 $PY scripts/smoke_books.py "$B" >"$WORK/books.out" 2>&1
@@ -264,7 +270,7 @@ dialogue.prune_cache(limit=500)                       # k0 (job sống) vẫn n�
 assert any("vượt TTS_CACHE_MB" in m for m in records), records
 PYEOF
 
-check "các script thử (smoke_books, smoke_queue…) không để lại thư mục tạm trong /tmp" bash -c '! find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$1" \( -name "smoke_queue_*" -o -name "smoke_books_*" -o -name "measure_pauses_*" -o -name "perf_books_*" -o -name "lexicon_probe_*" -o -name "bench_vieneu_*" \) | grep -q .' _ "$WORK/stamp"
+check "các script thử (smoke_books, smoke_queue…) không để lại thư mục tạm trong /tmp" bash -c '! find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$1" \( -name "smoke_queue_*" -o -name "smoke_books_*" -o -name "measure_pauses_*" -o -name "perf_books_*" -o -name "lexicon_probe_*" -o -name "bench_vieneu_*" -o -name "smoke_ui_*" \) | grep -q .' _ "$WORK/stamp"
 
 echo
 echo "Kết quả: $PASS PASS, $FAIL FAIL"

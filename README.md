@@ -1,19 +1,47 @@
 # Giọng Việt — Text to Speech
 
 Web tool chuyển văn bản thành giọng nói tiếng Việt: đọc văn bản, thư viện giọng (nhân bản, yêu thích),
-trộn hai giọng thành giọng mới, và hội thoại nhiều người. Chạy trên máy bạn, giao diện một trang HTML thuần.
+trộn hai giọng thành giọng mới, và hội thoại nhiều người. Chạy trên máy bạn, giao diện web thuần (HTML + CSS + ES module, không cần build).
+
+## Bắt đầu nhanh (5 bước)
+
+Cài một lần theo mục "Cài đặt" bên dưới, rồi:
+
+1. **Mở tool.** Chạy `python server.py`, mở http://localhost:8000. Màn chính có ba thẻ lớn: Làm sách nói, Đọc văn bản, Giọng đọc.
+
+   ![Màn chính](docs/img/man-chinh.png)
+
+2. **Đọc thử một đoạn.** Bấm "Đọc văn bản", dán hoặc gõ vài câu, bấm **Đọc** (hoặc Ctrl + Enter). Nghe ngay ở thanh phát dưới cùng; muốn giữ thì bấm "Tải về". Lần đầu dùng "Giọng trên máy" có thể mất vài phút để tải thêm.
+
+   ![Đọc một đoạn](docs/img/doc-mot-doan.gif)
+
+3. **Thêm truyện.** Bấm "Làm sách nói" → "Thêm truyện", kéo thả các file (`.txt`, `.epub`, `.html`) vào, bấm Tiếp tục. Tool chia chương và nói rõ chỗ đáng ngờ (thiếu chương, chữ bị che, chương quá ngắn). Đúng ý thì bấm "Đúng rồi, tiếp tục"; chưa đúng thì bấm "Có chỗ sai" để sửa.
+
+   ![Kiểm tra chia chương](docs/img/buoc-2-kiem-tra.png)
+
+4. **Tạo thử 5 chương.** Ở bước chọn giọng: chọn giọng, bấm ▶ nghe thử 1 phút đầu chương 1, tick "Tạo thử 5 chương trước", bấm **Bắt đầu tạo sách nói**. Tool tạo 5 chương rồi **dừng**; nghe thử, ưng thì bấm "Tạo tiếp" cho cả truyện (có thể đóng trình duyệt, tool vẫn chạy nền).
+
+   ![Chọn giọng](docs/img/buoc-3-chon-giong.png)
+
+5. **Tải về.** Ở trang truyện bấm "⬇ Tải về": chọn "Từng chương (MP3)" (file zip) hoặc "Một file nghe trên điện thoại" (.m4b có mục lục).
+
+   ![Trang truyện](docs/img/trang-truyen.png)
 
 ## Giao diện
 
-Giao diện đang được làm lại cho dễ dùng (tài liệu thiết kế: `docs/ux/` — kiểm kê, sơ đồ điều hướng, bản mẫu `prototype.html`). Không có bước build: HTML + CSS + ES module thuần.
+Không có bước build: HTML + CSS + ES module thuần. Thiết kế nằm ở `docs/ux/` (kiểm kê, sơ đồ điều hướng, bản mẫu `prototype.html`). **Giao diện cũ có ở git tag `ux-3`** (`git checkout ux-3`); từ bản này không còn được phục vụ.
 
-- `static/index.html` + `static/css/{tokens,base,components}.css` + `static/js/` (`app.js`, `router.js`, `player.js`, `errors.js`, `voicepicker.js`, `views/`…). Màu và cỡ chữ chỉ nằm trong `tokens.css` (sáng / tối theo hệ thống).
-- Đã làm lại: khung (thanh trên cùng có chỉ báo "Đang tạo…", trình phát dính đáy, Lịch sử, Cài đặt chung), màn chính, **Đọc văn bản** (gồm "Nhiều người đọc"), **Giọng đọc**, **Làm sách nói** (trình 3 bước Chọn file → Kiểm tra → Chọn giọng, trang từng truyện, Cách đọc tên riêng). Lỗi hiện bằng lời thường kèm cách khắc phục, chi tiết kỹ thuật trong "Xem chi tiết" (`errors.js`).
-- Làm sách nói (`#/sach/them`, `#/sach/<id>/kiem-tra`, `#/sach/<id>/giong`, `#/sach/<id>`): kéo thả file → tool chia chương và báo chỗ đáng ngờ bằng lời thường (thiếu chương, chữ bị che, chương quá ngắn) → "Có chỗ sai" mở công cụ sửa (mẫu tiêu đề từ một dòng ví dụ, gộp/tách chương, bỏ từng quy tắc dọn văn bản, xem dòng bị đổi) → chọn giọng, nghe thử 1 phút → bắt đầu. "Tạo thử 5 chương trước" dừng sau 5 chương rồi hiện banner "Tạo tiếp". Trạng thái nằm ở server: `book.json` có `trial: {limit, done_at}` (ghi khi gọi `POST /api/books/{id}/queue/run` với `{"limit":5,"trial":true}`; `done_at` được ghi khi đủ N chương xong; `GET /api/queue?book=` trả `trial`; `PATCH /api/books/{id}` với `{"dismiss_trial":true}` = "Để sau"; chạy tiếp cả truyện thì `trial` bị xoá). Nhờ vậy mở truyện ở máy/trình duyệt khác vẫn thấy banner. Danh sách chương chia trang 50 dòng (đo với 1.500 chương: xem báo cáo UX-3).
-- **Giọng đọc** (`#/giong`): lưới thẻ chia nhóm Yêu thích / Giọng của tôi / Giọng có sẵn; mỗi thẻ có ▶, ★ và menu ⋯ (Dùng để đọc, Đổi tên, Xoá). "Thêm giọng từ file ghi âm" là hộp thoại 2 bước (chọn file hoặc ghi âm bằng micro → đặt tên + xác nhận quyền dùng giọng; `recorder.js`). "Pha giọng mới" (`#/giong/pha`): chọn 2 giọng bằng thẻ, kéo thanh giữa hai giọng, thả tay là tự nghe thử, "Lưu giọng này".
-- Giao diện mới đã có đủ mọi màn; không còn liên kết nào tới giao diện cũ. `/legacy` vẫn được phục vụ (file `static/legacy.html`) nhưng chỉ vào bằng cách gõ địa chỉ; sẽ xoá khi bạn đồng ý.
-- `GET /api/settings` / `PUT /api/settings` `{default_voice:{engine,voice}|null}`: giọng mặc định (Cài đặt chung); lưu ở `data/settings.json`, module `settings.py`. Chưa chọn thì dùng giọng ⭐ đầu tiên của giọng trên máy.
-- `GET /api/overview` (chỉ đọc): trạng thái hàng đợi + danh sách truyện kèm số chương đã xong + truyện đang tạo, để vẽ thanh trên cùng và màn chính bằng một request.
+- `static/index.html` + `static/css/{tokens,base,components}.css` + `static/js/` (`app.js`, `router.js`, `player.js`, `errors.js`, `voicepicker.js`, `shortcuts.js`, `views/`…). Màu và cỡ chữ chỉ nằm trong `tokens.css` (sáng / tối theo hệ thống; tương phản chữ đạt WCAG AA, có test).
+- Các màn: Màn chính `#/` · Làm sách nói `#/sach`, `#/sach/them`, `#/sach/<id>/kiem-tra`, `#/sach/<id>/giong`, `#/sach/<id>` · Đọc văn bản `#/doc` (gồm "Nhiều người đọc") · Giọng đọc `#/giong`, Pha giọng `#/giong/pha` · Lịch sử và Cài đặt chung (hộp thoại ở thanh trên cùng).
+- Chữ trên giao diện là lời thường; thuật ngữ kỹ thuật chỉ nằm trong khối "Nâng cao" (đóng sẵn). Lỗi hiện kèm cách khắc phục, chi tiết gốc ở "Xem chi tiết".
+- **Phím tắt:** Ctrl + Enter đọc · Space phát/dừng thanh phát (khi không gõ chữ) · Esc đóng hộp thoại/menu/Lịch sử · `?` mở bảng phím tắt.
+- **Làm sách nói:** "Tạo thử 5 chương trước" dừng sau 5 chương rồi hiện banner "Tạo tiếp". Trạng thái nằm ở server: `book.json` có `trial: {limit, done_at}` (ghi khi gọi `POST /api/books/{id}/queue/run` với `{"limit":5,"trial":true}`; `done_at` ghi khi đủ N chương xong; `GET /api/queue?book=` trả `trial`; `PATCH /api/books/{id}` với `{"dismiss_trial":true}` = "Để sau"; chạy tiếp cả truyện thì `trial` bị xoá). Mở truyện ở máy khác vẫn thấy banner. Danh sách chương chia trang 50 dòng (truyện 1.500 chương: mở trang ~0,2 giây).
+- **Giọng đọc:** lưới thẻ chia nhóm Yêu thích / Giọng của tôi / Giọng có sẵn; thẻ có ▶, ★, menu ⋯ (Dùng để đọc, Đổi tên, Xoá). "Thêm giọng từ file ghi âm" là hộp thoại 2 bước (chọn file hoặc ghi âm bằng micro → đặt tên + xác nhận quyền dùng giọng; `recorder.js`). "Pha giọng mới": chọn 2 giọng bằng thẻ, kéo thanh, thả tay là tự nghe thử, "Lưu giọng này".
+- **Cài đặt chung:** giọng mặc định, giữ máy không ngủ khi đang tạo, báo khi xong. Khối "Nâng cao" chỉ hiển thị (đặt bằng biến môi trường): chế độ chạy giọng trên máy, độ chính xác, kích thước đoạn, dung lượng bộ nhớ tạm.
+- **Dữ liệu ở trình duyệt (`localStorage`):** các khoá còn dùng, đều có tiền tố `gv:` — `engine`, `voice:<loại giọng>`, `voice-last`, `speed`, `notify`, `playRate`, `mix:auto`. Lúc khởi động giao diện xoá các khoá không còn dùng (`gv:trial5:*`, `engine` / `voice:*` không tiền tố của giao diện cũ).
+- API thêm cho giao diện: `GET/PUT /api/settings` (`{default_voice:{engine,voice}|null}`, lưu ở `data/settings.json`, module `settings.py`; chưa chọn thì dùng giọng ⭐ đầu tiên của giọng trên máy), `GET /api/settings/info` (chỉ đọc: chế độ chạy, độ chính xác, cỡ đoạn, dung lượng bộ nhớ tạm), `GET /api/overview` (chỉ đọc: trạng thái hàng đợi + danh sách truyện + truyện đang tạo, để vẽ thanh trên cùng và màn chính bằng một request).
+
+![Giọng đọc](docs/img/giong-doc.png)
 
 ## Tính năng theo engine
 
@@ -186,7 +214,7 @@ Nút **Chạy tất cả**, **Chạy thử 5 chương đầu**, **Chạy khoản
 scripts/smoke_test.sh            # khởi động server với data tạm, chạy các luồng chính, in PASS/FAIL, tự dọn
 SKIP_EDGE=1 scripts/smoke_test.sh   # bỏ các bước cần mạng
 ```
-`scripts/smoke_books.py` (do `smoke_test.sh` gọi) kiểm riêng phần sách nói; `scripts/smoke_queue.py` (cũng do `smoke_test.sh` gọi, `SKIP_QUEUE=1` để bỏ, ~3 phút) tự chạy server riêng để `kill -9` / SIGINT giữa chừng, khởi động lại và xuất MP3 + m4b. `scripts/bench_vieneu.py` đo tốc độ fp32 và int8. `scripts/measure_pauses.py` đo khoảng lặng xuống đoạn / sau tiêu đề trong audio chương thật (chạy VieNeu ~45 giây; cũng nằm trong bước hàng đợi của `smoke_test.sh`). `scripts/perf_books.py` đo hiệu năng với truyện giả 20 MB / 1.500 chương.
+`scripts/smoke_ui.py` (do `smoke_test.sh` gọi; cần Chrome/Chromium, không có thì bỏ qua) mở giao diện trong Chrome headless: mọi route ở 390 / 768 / 1280 px không lỗi JS, không tràn ngang, nút biểu tượng có nhãn, không có từ kỹ thuật ngoài "Nâng cao", luồng bước 3 → tạo thử 5 chương. Test JS thuần chạy bằng `node tests/js/*.test.mjs`. `scripts/smoke_books.py` (do `smoke_test.sh` gọi) kiểm riêng phần sách nói; `scripts/smoke_queue.py` (cũng do `smoke_test.sh` gọi, `SKIP_QUEUE=1` để bỏ, ~3 phút) tự chạy server riêng để `kill -9` / SIGINT giữa chừng, khởi động lại và xuất MP3 + m4b. `scripts/bench_vieneu.py` đo tốc độ fp32 và int8. `scripts/measure_pauses.py` đo khoảng lặng xuống đoạn / sau tiêu đề trong audio chương thật (chạy VieNeu ~45 giây; cũng nằm trong bước hàng đợi của `smoke_test.sh`). `scripts/perf_books.py` đo hiệu năng với truyện giả 20 MB / 1.500 chương.
 
 ## Thêm engine mới
 

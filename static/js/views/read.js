@@ -3,7 +3,7 @@ import { h, debounce, sleep } from "../dom.js";
 import { api, sendJSON, sendForm, getJSON } from "../api.js";
 import { engines, voices, prefs } from "../store.js";
 import { VoicePicker, keyOf, splitKey, kindLabel, displayName, metaLine, previewVoice } from "../voicepicker.js";
-import { modal, showError, toast, switchEl } from "../ui.js";
+import { skeleton, modal, showError, toast, switchEl } from "../ui.js";
 import { play } from "../player.js";
 import { pending } from "../router.js";
 import { getSettings, effectiveDefault } from "../defaults.js";
@@ -23,7 +23,7 @@ const S = {
 export function mountRead(root) {
   let alive = true, E = {}, V = [], engineId = null, ST = null;
   const cleanup = () => { alive = false; };
-  root.append(h("p", { class: "muted" }, "Đang tải danh sách giọng…"));
+  root.append(skeleton(4));
   Promise.all([engines(), voices(), getSettings(true)]).then(([e, v, st]) => {
     if (!alive) return;
     E = e; V = v; ST = st;
@@ -88,11 +88,10 @@ export function mountRead(root) {
     countEl = h("span", { class: "muted" });
     const updateCount = () => { countEl.textContent = S.multi ? `${S.lines.length} dòng · ${S.speakers.length} người` : `${ta.value.length.toLocaleString("vi-VN")} ký tự`; };
     ta.addEventListener("input", () => { if (S.multi) { S.script = ta.value; scheduleParse(); } else { S.single = ta.value; } updateCount(); });
-    ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); generate(); } });
     updateCount();
     castBox = h("div", {});
     resultBox = h("div", {});
-    goBtn = h("button", { class: "btn primary", onclick: generate }, S.multi ? "Tạo audio" : "Đọc");
+    goBtn = h("button", { class: "btn primary", id: "goBtn", onclick: generate }, S.multi ? "Tạo audio" : "Đọc");
 
     root.replaceChildren(
       h("div", { class: "crumb" }, h("a", { href: "#/" }, "Trang chính"), " › ", h("span", {}, "Đọc văn bản")),

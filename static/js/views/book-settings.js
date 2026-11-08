@@ -7,7 +7,7 @@ import { engines, voices } from "../store.js";
 import { VoicePicker, keyOf, displayName, metaLine, previewVoice } from "../voicepicker.js";
 import { patchBook, deleteBook } from "../bookapi.js";
 import { editEntry, emptyEntry, describe } from "../lexicon-editor.js";
-import { sizeText } from "./book.js";
+import { sizeText } from "../dom.js";
 
 const SPEEDS = [["Chậm", -15], ["Vừa", 0], ["Nhanh", 20]];
 const speedLabel = (p) => (SPEEDS.find(([, v]) => v === p) || [])[0];

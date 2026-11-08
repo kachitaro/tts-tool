@@ -48,6 +48,12 @@ export function confirmBox({ title, body, ok = "Đồng ý", cancel = "Để l�
   });
 }
 
+/** Khung xám nhấp nháy giữ chỗ lúc đang tải (thay cho chữ "Đang tải…"). rows: số dòng; cards: dựng thành thẻ. */
+export function skeleton(rows = 3, { cards = false } = {}) {
+  return h("div", { class: "skel" + (cards ? " cards" : ""), role: "status", "aria-busy": "true", "aria-label": "Đang tải" },
+    ...Array.from({ length: rows }, (_, i) => h("div", { class: "skel-row", style: `width:${cards ? 100 : [92, 78, 85, 64][i % 4]}%` })));
+}
+
 /** Công tắc bật/tắt kiểu điện thoại. */
 export function switchEl(label, checked, onchange) {
   const input = h("input", { type: "checkbox", checked: !!checked, onchange: () => onchange(input.checked) });

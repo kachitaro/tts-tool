@@ -160,15 +160,21 @@ def index():
     return FileResponse(ROOT / "static" / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/legacy")
-def legacy():
-    """Giao diện cũ (một file): các màn chưa được làm lại (Sách nói, thêm / pha giọng) vẫn dùng được ở đây."""
-    return FileResponse(ROOT / "static" / "legacy.html", headers={"Cache-Control": "no-cache"})
-
-
 @app.get("/api/settings")
 def settings_get():
     return settings.load()
+
+
+@app.get("/api/settings/info")
+def settings_info():
+    """Chỉ đọc, cho khối "Nâng cao" của Cài đặt chung: các giá trị đặt bằng biến môi trường khi mở tool."""
+    return {
+        "vieneu_mode": os.getenv("VIENEU_MODE", "v3turbo"),
+        "precision": bookq.current_precision(),
+        "segment_chars": books.SEGMENT_CHARS,
+        "cache_bytes": dialogue._dir_size(dialogue.CACHE) if dialogue.CACHE.is_dir() else 0,
+        "cache_max_bytes": dialogue.CACHE_MAX_BYTES,
+    }
 
 
 class SettingsIn(BaseModel):

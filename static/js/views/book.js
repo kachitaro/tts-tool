@@ -1,20 +1,20 @@
 // Trang truyện = bảng điều khiển: tiến độ lớn, Tạm dừng / Tiếp tục, Tải về, danh sách chương, tên riêng, cài đặt.
-import { h, fmtLeft, sleep } from "../dom.js";
+import { h, fmtLeft, sleep, sizeText } from "../dom.js";
 import { api, getJSON, sendJSON } from "../api.js";
 import { go } from "../router.js";
-import { showError, toast, confirmBox, modal } from "../ui.js";
+import { skeleton, showError, toast, confirmBox, modal } from "../ui.js";
 import { play } from "../player.js";
 import { menuButton } from "../menu.js";
 import { Pager, PAGE_SIZE } from "../pager.js";
 import { askNotifyPermission } from "../overview.js";
-import { getBook, chaptersOf, queueOf, runQueue, runTrial, dismissTrial, trial, deleteBook } from "../bookapi.js";
+import { getBook, chaptersOf, queueOf, runQueue, startTrial, dismissTrial, trial, deleteBook } from "../bookapi.js";
 import { mountNamesTab } from "./book-names.js";
 import { mountSettingsTab } from "./book-settings.js";
 
 const fmtN = (n) => Number(n).toLocaleString("vi-VN");
 const fmtDur = (s) => (s >= 3600 ? `${(s / 3600).toFixed(1).replace(".", ",")} giờ` : s >= 60 ? `${Math.round(s / 60)} phút` : `${Math.round(s)} giây`);
-const sizeText = (b) => (b >= 2 ** 30 ? (b / 2 ** 30).toFixed(1).replace(".", ",") + " GB" : b >= 2 ** 20 ? (b / 2 ** 20).toFixed(1).replace(".", ",") + " MB" : Math.max(1, Math.round(b / 1024)) + " KB");
-export { fmtN, sizeText };
+
+export { fmtN };
 
 const FILTERS = [["all", "Tất cả"], ["done", "Đã xong"], ["wait", "Đang chờ"], ["todo", "Chưa tạo"], ["stale", "Cần tạo lại"], ["error", "Lỗi"]];
 const isDone = (c) => c.status === "done" || c.status === "exported";
@@ -31,7 +31,7 @@ export function mountBook(root, { id }) {
   const top = h("div", {}), banners = h("div", { class: "stack", style: "--gap:12px;margin-bottom:var(--gap)" }), tabs = h("div", {}), content = h("div", {});
   root.append(h("div", { class: "crumb" }, h("a", { href: "#/" }, "Trang chính"), " › ", h("a", { href: "#/sach" }, "Làm sách nói"), " › ", h("span", { id: "bcTitle" }, "…")),
     banners, top, tabs, content);
-  top.append(h("div", { class: "card" }, h("p", { class: "muted" }, "Đang tải…")));
+  top.append(h("div", { class: "card" }, skeleton(3)));
 
   async function load() {
     try { [book, chs, q] = await Promise.all([getBook(id), chaptersOf(id).catch(() => []), queueOf(id)]); } catch (e) { root.replaceChildren(); showError(e); return false; }
@@ -71,7 +71,7 @@ export function mountBook(root, { id }) {
       h("div", { class: "row" }, primary,
         !allDone && done > 0 ? downloadButton(false) : null,
         active || q.paused || q.queued_book ? h("button", { class: "btn danger", onclick: cancelAll }, "Dừng hẳn") : null,
-        !active && !q.paused && done === 0 && total > 5 ? h("button", { class: "btn", onclick: () => { askNotifyPermission(); runTrial(id, 5).then(() => refresh(true)).catch(showError); } }, "Tạo thử 5 chương") : null)));
+        !active && !q.paused && done === 0 && total > 5 ? h("button", { class: "btn", onclick: () => { askNotifyPermission(); startTrial(id, 5).then(() => refresh(true)).catch(showError); } }, "Tạo thử 5 chương") : null)));
   }
 
   let voiceName = "";

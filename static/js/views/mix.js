@@ -4,7 +4,7 @@ import { api } from "../api.js";
 import { explain } from "../errors.js";
 import { engines, voices, resetVoices, prefs } from "../store.js";
 import { VoicePicker, keyOf, displayName, metaLine, previewVoice } from "../voicepicker.js";
-import { showError, toast, modal } from "../ui.js";
+import { skeleton, showError, toast, modal } from "../ui.js";
 import { play } from "../player.js";
 import { go } from "../router.js";
 import { choiceSeg, GENDERS, REGIONS } from "./voice-add.js";
@@ -15,7 +15,7 @@ export function mountMix(root) {
   let alive = true, eng = {}, E = null, V = [];
   const S = { a: null, b: null, pos: 50, text: SAMPLE, auto: prefs.get("mix:auto", true), busy: false, err: "", lastUrl: "" };
   let ctl = null, timer = null;
-  const area = h("div", {}, h("p", { class: "muted" }, "Đang tải danh sách giọng…"));
+  const area = h("div", {}, skeleton(4));
   root.append(
     h("div", { class: "crumb" }, h("a", { href: "#/" }, "Trang chính"), " › ", h("a", { href: "#/giong" }, "Giọng đọc"), " › ", h("span", {}, "Pha giọng mới")),
     h("h2", {}, "Pha giọng mới"),
