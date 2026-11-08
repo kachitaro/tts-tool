@@ -17,8 +17,12 @@ win.move(50, 30)
 box = Gtk.EventBox()
 box.add(Gtk.Label(label=", ".join(p.name for p in paths)))
 win.add(box)
-box.drag_source_set(Gdk.ModifierType.BUTTON1_MASK, [Gtk.TargetEntry.new("text/uri-list", 0, 0)], Gdk.DragAction.COPY)
-box.connect("drag-data-get", lambda w, ctx, data, info, t: data.set_uris([p.as_uri() for p in paths]))
+box.drag_source_set(
+    Gdk.ModifierType.BUTTON1_MASK, [Gtk.TargetEntry.new("text/uri-list", 0, 0)], Gdk.DragAction.COPY
+)
+box.connect(
+    "drag-data-get", lambda w, ctx, data, info, t: data.set_uris([p.as_uri() for p in paths])
+)
 box.connect("drag-begin", lambda *a: print("drag-begin", file=sys.stderr, flush=True))
 box.connect("drag-end", lambda *a: print("drag-end", file=sys.stderr, flush=True))
 win.connect("destroy", Gtk.main_quit)

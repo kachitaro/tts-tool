@@ -86,6 +86,8 @@ Lần đầu dùng VieNeu, model (~1 GB) được tải từ Hugging Face một 
 
 Cùng giao diện web, nhưng chạy trong cửa sổ riêng (pywebview + WebKitGTK), không cần mở trình duyệt. Backend `server.py` và giao diện web giữ nguyên; `python server.py` + trình duyệt vẫn chạy được (dùng khi chạy từ xa).
 
+**Phụ thuộc Python:** `requirements.txt` cho server (đủ để chạy `python server.py`); `requirements-app.txt` (`pywebview>=6.2,<7`) là phần **thêm** cho app cửa sổ, cài sau `requirements.txt`. Công cụ dev (ruff) ở `requirements-dev.txt`, cấu hình `ruff.toml`.
+
 **Cài gói hệ thống** (một lần; pip không cài được PyGObject trong `.venv` vì thiếu bản dev của girepository, nên dùng bản của hệ thống, `app_gtk.py` tự tìm):
 
 | Hệ | Lệnh |

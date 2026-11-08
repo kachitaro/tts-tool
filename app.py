@@ -32,12 +32,16 @@ import tempfile
 import threading
 import time
 import traceback
-import uuid
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
+from typing import Any
 
-from fastapi import HTTPException, Request   # cấp module: FastAPI cần phân giải kiểu của tham số (file này có `from __future__ import annotations`)
+from fastapi import (  # cấp module: FastAPI cần phân giải kiểu của tham số (file này có `from __future__ import annotations`)
+    HTTPException,
+    Request,
+)
 from fastapi.responses import FileResponse
 
 ROOT = Path(__file__).resolve().parent
@@ -53,8 +57,17 @@ def _xdg(env: str, default: str) -> Path:
 
 def paths() -> dict:
     """Thư mục của app (đọc env lúc gọi để --selftest chuyển hết sang thư mục tạm)."""
-    runtime = Path(os.getenv("GV_RUNTIME_DIR") or os.getenv("XDG_RUNTIME_DIR") or f"/tmp/{APP_ID}-{os.getuid()}")
-    return {"config": _xdg("XDG_CONFIG_HOME", ".config"), "state": _xdg("XDG_STATE_HOME", ".local/state"), "share": _xdg("XDG_DATA_HOME", ".local/share"), "runtime": runtime}
+    runtime = Path(
+        os.getenv("GV_RUNTIME_DIR")
+        or os.getenv("XDG_RUNTIME_DIR")
+        or f"/tmp/{APP_ID}-{os.getuid()}"
+    )
+    return {
+        "config": _xdg("XDG_CONFIG_HOME", ".config"),
+        "state": _xdg("XDG_STATE_HOME", ".local/state"),
+        "share": _xdg("XDG_DATA_HOME", ".local/share"),
+        "runtime": runtime,
+    }
 
 
 def data_dir() -> Path:
@@ -78,7 +91,7 @@ def setup_logging(state_dir: Path) -> Path:
 class SingleInstance:
     """Khoá flock + socket unix cho mỗi thư mục dữ liệu (hai server trên một data/ không được hỗ trợ). Bản thứ hai gửi "raise"."""
 
-    def __init__(self, runtime: Path, key: str):
+    def __init__(self, runtime: Path, key: str) -> None:
         runtime.mkdir(parents=True, exist_ok=True)
         self.lock_path = runtime / f"{APP_ID}-{key}.lock"
         self.sock_path = runtime / f"{APP_ID}-{key}.sock"
@@ -110,7 +123,7 @@ class SingleInstance:
             s.close()
 
     def acquire_or_raise(self, token: str = "", route: str = "", timeout: float = 20) -> str:
-        """"owner": bản này là bản duy nhất · "raised": bản khác đang chạy và đã được nhắc đưa cửa sổ lên · "failed"."""
+        """ "owner": bản này là bản duy nhất · "raised": bản khác đang chạy và đã được nhắc đưa cửa sổ lên · "failed"."""
         end = time.time() + timeout
         while True:
             if self.acquire():
@@ -119,7 +132,9 @@ class SingleInstance:
                 return "raised"
             if time.time() > end:
                 return "failed"
-            time.sleep(0.2)   # bản kia đang khởi động (chưa mở socket) hoặc đang thoát (chưa nhả khoá)
+            time.sleep(
+                0.2
+            )  # bản kia đang khởi động (chưa mở socket) hoặc đang thoát (chưa nhả khoá)
 
     def serve(self, on_raise) -> None:
         self.sock_path.unlink(missing_ok=True)
@@ -129,7 +144,7 @@ class SingleInstance:
         srv.listen(4)
         self._srv = srv
 
-        def loop():
+        def loop() -> None:
             while True:
                 try:
                     conn, _ = srv.accept()
@@ -163,16 +178,16 @@ class SingleInstance:
 class Prefs:
     """Trạng thái cửa sổ: width, height, x, y, maximized, zoom, port, save_dir."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path) -> None:
         self.path = path
         try:
             self.d = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except OSError, ValueError:
             self.d = {}
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
 
-    def get(self, k, default=None):
+    def get(self, k: str, default: Any = None) -> Any:
         return self.d.get(k, default)
 
     def update(self, **kw) -> None:
@@ -212,8 +227,8 @@ p{{margin:0;color:var(--muted)}} .msg{{color:var(--text);font-weight:600}}
 pre{{max-width:72ch;text-align:left;white-space:pre-wrap;color:var(--muted);font-size:13px;margin:0}}
 @media (prefers-reduced-motion:reduce){{.spin{{animation:none}}}}
 </style>
-<main><div class="logo"><b>Giọng</b> Việt</div>{'<div class="spin" role="status" aria-label="Đang chờ"></div>' if spinning else ''}
-<p class="msg">{esc(msg)}</p><p>{esc(sub)}</p>{f'<details><summary>Xem chi tiết</summary><pre>{esc(detail)}</pre></details>' if detail else ''}</main></html>"""
+<main><div class="logo"><b>Giọng</b> Việt</div>{'<div class="spin" role="status" aria-label="Đang chờ"></div>' if spinning else ""}
+<p class="msg">{esc(msg)}</p><p>{esc(sub)}</p>{f"<details><summary>Xem chi tiết</summary><pre>{esc(detail)}</pre></details>" if detail else ""}</main></html>"""
 
 
 def norm_route(r: str) -> str:
@@ -222,8 +237,13 @@ def norm_route(r: str) -> str:
     return r if re.fullmatch(r"/[A-Za-z0-9_\-./%]*", r) else ""
 
 
-def http(url: str, method: str = "GET", timeout: float = 10):
-    req = urllib.request.Request(url, data=b"{}" if method == "POST" else None, method=method, headers={"Content-Type": "application/json"})
+def http(url: str, method: str = "GET", timeout: float = 10) -> tuple[int, bytes]:
+    req = urllib.request.Request(
+        url,
+        data=b"{}" if method == "POST" else None,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, r.read()
 
@@ -234,21 +254,30 @@ ZOOMS = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
 class Api:
     """Hàm Python gọi từ JS qua window.pywebview.api (xem static/js/appenv.js). Mọi trạng thái để ở app._ vì pywebview lộ thuộc tính công khai."""
 
-    def __init__(self, app: "App"):
+    def __init__(self, app: App) -> None:
         self._app = app
 
-    def info(self):
+    def info(self) -> dict[str, Any]:
         a = self._app
-        return {"app": True, "backend": "gtk", "debug": DEBUG, "tray": a.tray_ok, "port": a.port, "zoom": a.zoom}
+        return {
+            "app": True,
+            "backend": "gtk",
+            "debug": DEBUG,
+            "tray": a.tray_ok,
+            "port": a.port,
+            "zoom": a.zoom,
+        }
 
-    def save_dialog(self, name: str):
+    def save_dialog(self, name: str) -> dict[str, Any]:
         """Hộp thoại "Lưu thành…" gốc. Trả {ok, token, path}; dữ liệu đưa sau qua save_url (từ server) hoặc PUT /_app/save/<token> (từ blob)."""
         import webview
 
         a = self._app
         name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", Path(str(name)).name)[:120] or "tai-ve"
         start = a.prefs.get("save_dir") or a.gtk.downloads_dir()
-        res = a.window.create_file_dialog(webview.FileDialog.SAVE, directory=start, save_filename=name)
+        res = a.window.create_file_dialog(
+            webview.FileDialog.SAVE, directory=start, save_filename=name
+        )
         if not res:
             return {"ok": False}
         path = Path(res if isinstance(res, str) else res[0])
@@ -258,7 +287,7 @@ class Api:
         a.save_targets[tok] = path
         return {"ok": True, "token": tok, "path": str(path)}
 
-    def save_url(self, token: str, url: str):
+    def save_url(self, token: str, url: str) -> dict[str, Any]:
         """Chép một đường dẫn trên server (/api/…) vào file đã chọn (không đọc cả file vào bộ nhớ trình duyệt)."""
         a = self._app
         dest = a.save_targets.pop(token, None)
@@ -268,14 +297,17 @@ class Api:
             return {"ok": False, "error": "Đường dẫn không hợp lệ."}
         part = dest.with_name(dest.name + ".part")
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{a.port}{url}", timeout=120) as r, part.open("wb") as f:
+            with (
+                urllib.request.urlopen(f"http://127.0.0.1:{a.port}{url}", timeout=120) as r,
+                part.open("wb") as f,
+            ):
                 shutil.copyfileobj(r, f, 1 << 20)
             part.replace(dest)
             return {"ok": True, "path": str(dest), "bytes": dest.stat().st_size}
         except urllib.error.HTTPError as ex:
             try:
                 msg = json.loads(ex.read()).get("error")
-            except (ValueError, OSError):
+            except ValueError, OSError:
                 msg = None
             return {"ok": False, "error": msg or f"Server trả lỗi {ex.code}."}
         except OSError as ex:
@@ -283,11 +315,13 @@ class Api:
         finally:
             part.unlink(missing_ok=True)
 
-    def dropped_files(self):
+    def dropped_files(self) -> list[dict[str, Any]]:
         """File vừa được thả vào cửa sổ (WebKitGTK không đưa File cho trang). Mỗi file có URL dùng một lần để fetch."""
         a = self._app
         end = time.time() + 0.8
-        while not a.drops and time.time() < end:   # DOM drop có thể tới trước tín hiệu kéo thả của GTK một chút
+        while (
+            not a.drops and time.time() < end
+        ):  # DOM drop có thể tới trước tín hiệu kéo thả của GTK một chút
             time.sleep(0.03)
         with a.lock:
             paths, a.drops = a.drops, []
@@ -301,10 +335,18 @@ class Api:
                 continue
             tok = secrets.token_urlsafe(16)
             a.drop_files[tok] = p
-            out.append({"name": p.name, "url": f"/_app/drop/{tok}", "size": st.st_size, "mtime": int(st.st_mtime), "type": mimetypes.guess_type(p.name)[0] or ""})
+            out.append(
+                {
+                    "name": p.name,
+                    "url": f"/_app/drop/{tok}",
+                    "size": st.st_size,
+                    "mtime": int(st.st_mtime),
+                    "type": mimetypes.guess_type(p.name)[0] or "",
+                }
+            )
         return out
 
-    def zoom(self, how: str):
+    def zoom(self, how: str) -> float:
         a = self._app
         z = a.zoom
         if how == "in":
@@ -316,7 +358,7 @@ class Api:
         a.set_zoom(z)
         return z
 
-    def close_choice(self, choice: str):
+    def close_choice(self, choice: str) -> bool:
         """Trả lời hộp hỏi khi đóng cửa sổ lúc đang tạo sách nói: "background" | "quit" | (khác = ở lại)."""
         a = self._app
         if choice == "background":
@@ -327,7 +369,7 @@ class Api:
 
 
 class App:
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.selftest = args.selftest
         self.P = paths()
@@ -350,7 +392,7 @@ class App:
         self.quitting = False
         self.raises = 0
         self.si: SingleInstance | None = None
-        self.results: list[tuple[bool, str, str]] = []   # selftest
+        self.results: list[tuple[bool, str, str]] = []  # selftest
         self.selftest_force_close = False
         self.url_loaded = False
         self.t_start = time.time()
@@ -360,11 +402,13 @@ class App:
 
     # ───────────── server ─────────────
     def listen_socket(self) -> socket.socket:
-        for port in [p for p in [self.prefs.get("port")] if isinstance(p, int) and 1024 <= p < 65536] + [0]:
+        for port in [
+            p for p in [self.prefs.get("port")] if isinstance(p, int) and 1024 <= p < 65536
+        ] + [0]:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
-                s.bind(("127.0.0.1", port))   # chỉ loopback: không ai ngoài máy này vào được
+                s.bind(("127.0.0.1", port))  # chỉ loopback: không ai ngoài máy này vào được
             except OSError:
                 s.close()
                 continue
@@ -374,13 +418,15 @@ class App:
     def start_server(self) -> None:
         import uvicorn
 
-        import server   # nặng (numpy, librosa, engines…): làm ở luồng nền để màn chờ hiện ngay
+        import server  # nặng (numpy, librosa, engines…): làm ở luồng nền để màn chờ hiện ngay
 
         self.add_routes(server.app)
-        cfg = uvicorn.Config(server.app, log_level="warning", access_log=False, timeout_graceful_shutdown=15)
+        cfg = uvicorn.Config(
+            server.app, log_level="warning", access_log=False, timeout_graceful_shutdown=15
+        )
         self.uv = uvicorn.Server(cfg)
 
-        def serve():
+        def serve() -> None:
             try:
                 self.uv.run(sockets=[self.sock])
             except BaseException:  # noqa: BLE001
@@ -392,6 +438,7 @@ class App:
 
     def add_routes(self, fastapi_app) -> None:
         """Hai route chỉ có trong app cửa sổ riêng (không nằm trong server.py): nhận blob để lưu file, và phát lại file vừa kéo thả."""
+
         @fastapi_app.put("/_app/save/{token}")
         async def app_save(token: str, request: Request):
             dest = self.save_targets.pop(token, None)
@@ -410,11 +457,13 @@ class App:
             return {"ok": True, "path": str(dest), "bytes": n}
 
         @fastapi_app.get("/_app/drop/{token}")
-        def app_drop(token: str):
-            p = self.drop_files.pop(token, None)   # dùng một lần
+        def app_drop(token: str) -> FileResponse:
+            p = self.drop_files.pop(token, None)  # dùng một lần
             if p is None or not p.is_file():
                 raise HTTPException(404, "File đã hết hạn.")
-            return FileResponse(p, media_type=mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+            return FileResponse(
+                p, media_type=mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+            )
 
     def wait_ready(self, timeout: float = 240) -> None:
         url = f"http://127.0.0.1:{self.port}/api/engines"
@@ -425,7 +474,7 @@ class App:
             try:
                 if http(url, timeout=3)[0] == 200:
                     return
-            except (urllib.error.URLError, OSError, TimeoutError):
+            except urllib.error.URLError, OSError, TimeoutError:
                 pass
             time.sleep(0.25)
         raise TimeoutError("server không trả lời /api/engines")
@@ -439,7 +488,7 @@ class App:
             return not self.server_thread.is_alive()
         return True
 
-    def server_get(self, path: str):
+    def server_get(self, path: str) -> Any:
         return json.loads(http(f"http://127.0.0.1:{self.port}{path}")[1])
 
     def busy(self) -> bool:
@@ -465,15 +514,15 @@ class App:
         upd = {"maximized": g["maximized"]}
         if not g["maximized"]:
             upd.update(width=g["width"], height=g["height"])
-            if not self.gtk.is_wayland():   # Wayland không cho ứng dụng biết / đặt vị trí cửa sổ
+            if not self.gtk.is_wayland():  # Wayland không cho ứng dụng biết / đặt vị trí cửa sổ
                 upd.update(x=g["x"], y=g["y"])
         self.prefs.update(**upd)
         self.prefs.save()
 
-    def on_closing(self):
+    def on_closing(self) -> bool:
         """Chạy ở luồng giao diện: trả False để chặn việc đóng."""
         if self.quitting or self.selftest_force_close:
-            return True   # đang thoát chủ động
+            return True  # đang thoát chủ động
         if self.busy():
             threading.Thread(target=self.ask_close, daemon=True).start()
             return False
@@ -490,10 +539,14 @@ class App:
 
     def ask_close(self) -> None:
         try:
-            r = self.window.evaluate_js("typeof window.gvAppClose === 'function' ? (window.gvAppClose(), 'ok') : 'none'")
+            r = self.window.evaluate_js(
+                "typeof window.gvAppClose === 'function' ? (window.gvAppClose(), 'ok') : 'none'"
+            )
         except Exception:  # noqa: BLE001
             r = "none"
-        if r != "ok":   # trang chưa nạp xong / không hỏi được: an toàn nhất là không mất việc đang làm
+        if (
+            r != "ok"
+        ):  # trang chưa nạp xong / không hỏi được: an toàn nhất là không mất việc đang làm
             log.warning("không hỏi được người dùng khi đóng cửa sổ, chạy nền tiếp")
             self.go_background()
 
@@ -511,7 +564,13 @@ class App:
     def ensure_tray(self) -> bool:
         if self.tray is None:
             try:
-                self.tray = self.gtk.Tray(str(ICON_SVG.parent), "giong-viet", self.show_window, self.toggle_pause, lambda: self.quit(pause=self.busy()))
+                self.tray = self.gtk.Tray(
+                    str(ICON_SVG.parent),
+                    "giong-viet",
+                    self.show_window,
+                    self.toggle_pause,
+                    lambda: self.quit(pause=self.busy()),
+                )
             except Exception:  # noqa: BLE001
                 log.exception("không tạo được biểu tượng khay")
                 self.tray_ok = False
@@ -523,8 +582,15 @@ class App:
             try:
                 cur = self.server_get("/api/overview").get("current")
                 if cur:
-                    n = f"chương {cur['chapter']}/{cur['chapters']}" if cur.get("chapter") else f"{cur['done']}/{cur['chapters']} chương"
-                    self.tray.update(f"{'Tạm dừng' if cur.get('paused') else 'Đang tạo'}: {cur['title']}, {n}", "Tiếp tục" if cur.get("paused") else "Tạm dừng")
+                    n = (
+                        f"chương {cur['chapter']}/{cur['chapters']}"
+                        if cur.get("chapter")
+                        else f"{cur['done']}/{cur['chapters']} chương"
+                    )
+                    self.tray.update(
+                        f"{'Tạm dừng' if cur.get('paused') else 'Đang tạo'}: {cur['title']}, {n}",
+                        "Tiếp tục" if cur.get("paused") else "Tạm dừng",
+                    )
                 else:
                     self.tray.update("Không có việc đang chạy", None)
             except Exception:  # noqa: BLE001
@@ -534,7 +600,9 @@ class App:
     def toggle_pause(self) -> None:
         try:
             paused = self.server_get("/api/queue")["paused"]
-            http(f"http://127.0.0.1:{self.port}/api/queue/{'resume' if paused else 'pause'}", "POST")
+            http(
+                f"http://127.0.0.1:{self.port}/api/queue/{'resume' if paused else 'pause'}", "POST"
+            )
         except Exception:  # noqa: BLE001
             log.exception("không đổi được trạng thái tạm dừng")
 
@@ -566,12 +634,19 @@ class App:
             self.save_geometry()
             if pause:
                 try:
-                    http(f"http://127.0.0.1:{self.port}/api/queue/pause", "POST")   # trạng thái tạm dừng được lưu: lần mở sau không tự chạy tiếp
+                    http(
+                        f"http://127.0.0.1:{self.port}/api/queue/pause", "POST"
+                    )  # trạng thái tạm dừng được lưu: lần mở sau không tự chạy tiếp
                 except Exception:  # noqa: BLE001
                     log.exception("không tạm dừng được hàng đợi")
             if self.window is not None and self.gtk.is_shown(self.window):
                 try:
-                    self.window.load_html(splash("Đang lưu việc đang làm dở…", "Vài giây nữa là xong, bạn không cần làm gì."))
+                    self.window.load_html(
+                        splash(
+                            "Đang lưu việc đang làm dở…",
+                            "Vài giây nữa là xong, bạn không cần làm gì.",
+                        )
+                    )
                 except Exception:  # noqa: BLE001
                     pass
             if not self.stop_server():
@@ -588,12 +663,17 @@ class App:
         self.log_file = setup_logging(P["state"])
         key = hashlib.sha1(str(data_dir()).encode()).hexdigest()[:10]
         self.si = SingleInstance(P["runtime"], key)
-        mode = self.si.acquire_or_raise(os.getenv("XDG_ACTIVATION_TOKEN") or os.getenv("DESKTOP_STARTUP_ID") or "", self.route)
+        mode = self.si.acquire_or_raise(
+            os.getenv("XDG_ACTIVATION_TOKEN") or os.getenv("DESKTOP_STARTUP_ID") or "", self.route
+        )
         if mode == "raised":
             print(f"{APP_NAME} đang chạy: đã đưa cửa sổ đang có lên trước.")
             return 0
         if mode == "failed":
-            print(f"{APP_NAME} đang chạy nhưng không phản hồi. Đóng nó (hoặc kill) rồi thử lại.", file=sys.stderr)
+            print(
+                f"{APP_NAME} đang chạy nhưng không phản hồi. Đóng nó (hoặc kill) rồi thử lại.",
+                file=sys.stderr,
+            )
             return 1
         try:
             return self._run_owner()
@@ -602,18 +682,27 @@ class App:
 
     def _run_owner(self) -> int:
         if not (os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY")):
-            print(f"Không có màn hình đồ hoạ (DISPLAY / WAYLAND_DISPLAY). Chạy từ xa thì dùng: python server.py", file=sys.stderr)
+            print(
+                "Không có màn hình đồ hoạ (DISPLAY / WAYLAND_DISPLAY). Chạy từ xa thì dùng: python server.py",
+                file=sys.stderr,
+            )
             return 3 if self.selftest else 2
         try:
-            import app_gtk as gtk
-
             import webview
+
+            import app_gtk as gtk
         except (RuntimeError, ImportError) as ex:
-            msg = str(ex) if isinstance(ex, RuntimeError) else f"Thiếu pywebview ({ex}). Cài: python -m pip install -r requirements-app.txt"
+            msg = (
+                str(ex)
+                if isinstance(ex, RuntimeError)
+                else f"Thiếu pywebview ({ex}). Cài: python -m pip install -r requirements-app.txt"
+            )
             print(msg, file=sys.stderr)
             log.error(msg)
             if shutil.which("notify-send"):
-                os.system("notify-send -a 'Giọng Việt' 'Không mở được Giọng Việt' 'Thiếu thư viện giao diện, xem README (mục App cửa sổ riêng).'")
+                os.system(
+                    "notify-send -a 'Giọng Việt' 'Không mở được Giọng Việt' 'Thiếu thư viện giao diện, xem README (mục App cửa sổ riêng).'"
+                )
             return 4
         self.gtk = gtk
         gtk.set_app_identity(APP_ID, APP_NAME)
@@ -630,8 +719,19 @@ class App:
         if not (isinstance(x, int) and isinstance(y, int) and gtk.point_visible(x + 40, y + 20)):
             x = y = None
         self.window = webview.create_window(
-            APP_NAME, html=splash("Đang khởi động…", "Lần đầu có thể mất một lúc."), js_api=Api(self), width=w, height=h, x=x, y=y, min_size=(360, 480),
-            hidden=self.selftest, maximized=bool(self.prefs.get("maximized")), text_select=True, background_color="#f7f6f3")
+            APP_NAME,
+            html=splash("Đang khởi động…", "Lần đầu có thể mất một lúc."),
+            js_api=Api(self),
+            width=w,
+            height=h,
+            x=x,
+            y=y,
+            min_size=(360, 480),
+            hidden=self.selftest,
+            maximized=bool(self.prefs.get("maximized")),
+            text_select=True,
+            background_color="#f7f6f3",
+        )
         ev = self.window.events
         ev.closing += self.on_closing
         ev.resized += self.geo_changed
@@ -639,7 +739,14 @@ class App:
         webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = DEBUG
         icon = str(ICON_SVG) if ICON_SVG.is_file() and gtk.svg_ok(str(ICON_SVG)) else None
         try:
-            webview.start(self.boot, gui="gtk", debug=True, private_mode=False, storage_path=str(self.P["share"] / "webview"), icon=icon)
+            webview.start(
+                self.boot,
+                gui="gtk",
+                debug=True,
+                private_mode=False,
+                storage_path=str(self.P["share"] / "webview"),
+                icon=icon,
+            )
         finally:
             self.cleanup()
         if self.selftest:
@@ -658,7 +765,9 @@ class App:
             self.wait_ready()
             log.info("server sẵn sàng sau %.1f giây, cổng %s", time.time() - t0, self.port)
             self.window.events.loaded += self.on_loaded
-            self.window.load_url(f"http://127.0.0.1:{self.port}/" + (f"#{self.route}" if self.route else ""))
+            self.window.load_url(
+                f"http://127.0.0.1:{self.port}/" + (f"#{self.route}" if self.route else "")
+            )
             self.url_loaded = True
             if self.selftest:
                 self.run_selftest()
@@ -666,7 +775,14 @@ class App:
             err = traceback.format_exc()
             log.error("không khởi động được: %s", err)
             try:
-                self.window.load_html(splash("Không khởi động được Giọng Việt.", f"Nhật ký: {self.log_file}", err, spinning=False))
+                self.window.load_html(
+                    splash(
+                        "Không khởi động được Giọng Việt.",
+                        f"Nhật ký: {self.log_file}",
+                        err,
+                        spinning=False,
+                    )
+                )
             except Exception:  # noqa: BLE001
                 pass
             if self.selftest:
@@ -700,7 +816,7 @@ class App:
         except Exception as ex:  # noqa: BLE001
             self.results.append((False, name, f"{type(ex).__name__}: {ex}"[:300]))
 
-    def js(self, expr: str, timeout: float = 20):
+    def js(self, expr: str, timeout: float = 20) -> Any:
         return self.window.evaluate_js(expr)
 
     def run_selftest(self) -> None:
@@ -709,59 +825,79 @@ class App:
         assert self.window.events.loaded.wait(30), "trang không nạp xong"
         base = f"http://127.0.0.1:{self.port}"
 
-        def engines():
+        def engines() -> None:
             s, b = http(base + "/api/engines")
             assert s == 200 and json.loads(b)
 
-        def loopback_only():
+        def loopback_only() -> None:
             assert self.sock.getsockname()[0] == "127.0.0.1", self.sock.getsockname()
 
-        def ui_mounted():
+        def ui_mounted() -> None:
             t = time.time()
             while time.time() - t < 20:
-                if self.js("document.querySelector('#view') && document.querySelector('#view').children.length") :
+                if self.js(
+                    "document.querySelector('#view') && document.querySelector('#view').children.length"
+                ):
                     return
                 time.sleep(0.2)
             raise AssertionError("giao diện không dựng được (#view rỗng)")
 
-        def in_webview():
+        def in_webview() -> None:
             assert self.js("!!window.pywebview") is True
             t = time.time()
-            while time.time() - t < 10 and not self.js("!!(window.pywebview.api && window.pywebview.api.info)"):
+            while time.time() - t < 10 and not self.js(
+                "!!(window.pywebview.api && window.pywebview.api.info)"
+            ):
                 time.sleep(0.2)
-            self.js("window.__info = null; window.pywebview.api.info().then(i => { window.__info = i; })")
+            self.js(
+                "window.__info = null; window.pywebview.api.info().then(i => { window.__info = i; })"
+            )
             t = time.time()
             while time.time() - t < 5 and not self.js("window.__info"):
                 time.sleep(0.1)
             got = self.js("window.__info && window.__info.backend")
             assert got == "gtk", got
 
-        def local_storage():
+        def local_storage() -> None:
             self.js("localStorage.setItem('gv:selftest', '1')")
             assert self.js("localStorage.getItem('gv:selftest')") == "1"
             self.js("localStorage.removeItem('gv:selftest')")
-            self.js("localStorage.setItem('gv:voice-last', 'vong-1')")   # vòng 2 của selftest kiểm giá trị này còn không (phải là khoá còn dùng, khoá lạ bị cleanupStorage xoá lúc khởi động)
+            self.js(
+                "localStorage.setItem('gv:voice-last', 'vong-1')"
+            )  # vòng 2 của selftest kiểm giá trị này còn không (phải là khoá còn dùng, khoá lạ bị cleanupStorage xoá lúc khởi động)
 
-        def persisted():
-            assert self.pref_port_at_start and self.port == self.pref_port_at_start, f"cổng đổi: {self.pref_port_at_start} → {self.port}"
+        def persisted() -> None:
+            assert self.pref_port_at_start and self.port == self.pref_port_at_start, (
+                f"cổng đổi: {self.pref_port_at_start} → {self.port}"
+            )
             got = self.js("localStorage.getItem('gv:voice-last')")
             ls = self.P["share"] / "webview" / "localstorage"
             files = {f.name: f.stat().st_size for f in ls.iterdir()} if ls.is_dir() else None
-            assert got == "vong-1", f"localStorage mất sau khi mở lại app: {got!r}; thư mục lưu: {files}"
+            assert got == "vong-1", (
+                f"localStorage mất sau khi mở lại app: {got!r}; thư mục lưu: {files}"
+            )
 
-        def single_instance():
+        def single_instance() -> None:
             env = dict(os.environ)
             before = self.raises
-            r = subprocess.run([sys.executable, str(ROOT / "app.py"), "/giong"], env=env, capture_output=True, text=True, timeout=60)
+            r = subprocess.run(
+                [sys.executable, str(ROOT / "app.py"), "/giong"],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
             assert r.returncode == 0, (r.returncode, r.stderr[-200:])
             assert "đã đưa cửa sổ" in r.stdout, r.stdout
             assert self.raises == before + 1, "bản đang chạy không nhận được yêu cầu đưa cửa sổ lên"
             t = time.time()
-            while time.time() - t < 5 and self.js("location.hash") != "#/giong":   # đối số "/giong" của bản 2 đưa bản 1 tới màn đó
+            while (
+                time.time() - t < 5 and self.js("location.hash") != "#/giong"
+            ):  # đối số "/giong" của bản 2 đưa bản 1 tới màn đó
                 time.sleep(0.2)
             assert self.js("location.hash") == "#/giong", self.js("location.hash")
 
-        def save_via_server():
+        def save_via_server() -> None:
             d = Path(tempfile.mkdtemp(prefix="gv_save_"))
             try:
                 out = d / "engines.json"
@@ -769,14 +905,14 @@ class App:
                 self.save_targets[tok] = out
                 r = Api(self).save_url(tok, "/api/engines")
                 assert r["ok"] and json.loads(out.read_text()), r
-                assert Api(self).save_url(tok, "/api/engines")["ok"] is False   # mã chỉ dùng một lần
+                assert Api(self).save_url(tok, "/api/engines")["ok"] is False  # mã chỉ dùng một lần
                 tok = secrets.token_urlsafe(8)
                 self.save_targets[tok] = out
                 assert Api(self).save_url(tok, "//evil.example/x")["ok"] is False
             finally:
                 shutil.rmtree(d, ignore_errors=True)
 
-        def save_blob():
+        def save_blob() -> None:
             d = Path(tempfile.mkdtemp(prefix="gv_save_"))
             try:
                 out, tok, payload = d / "blob.bin", secrets.token_urlsafe(8), os.urandom(300_000)
@@ -788,22 +924,24 @@ class App:
             finally:
                 shutil.rmtree(d, ignore_errors=True)
 
-        def dropped():
+        def dropped() -> None:
             d = Path(tempfile.mkdtemp(prefix="gv_drop_"))
             try:
                 f = d / "chuong 1.txt"
                 f.write_text("xin chào", encoding="utf-8")
-                self.on_uris([f.as_uri(), d.as_uri()])   # thư mục bị bỏ qua
+                self.on_uris([f.as_uri(), d.as_uri()])  # thư mục bị bỏ qua
                 got = Api(self).dropped_files()
                 assert [g["name"] for g in got] == ["chuong 1.txt"], got
                 assert http(base + got[0]["url"])[1] == "xin chào".encode()
-                assert Api(self).dropped_files() == []                           # lấy xong thì hết
+                assert Api(self).dropped_files() == []  # lấy xong thì hết
             finally:
                 shutil.rmtree(d, ignore_errors=True)
 
-        def microphone_allowed():
+        def microphone_allowed() -> None:
             # WebKitGTK từ chối getUserMedia nếu không ai cho phép: app phải cho phép. Máy không có micro → NotFoundError cũng là đạt.
-            self.js("window.__mic = null; navigator.mediaDevices.getUserMedia({audio: true}).then(s => { s.getTracks().forEach(t => t.stop()); window.__mic = 'ok'; }).catch(e => { window.__mic = e.name; })")
+            self.js(
+                "window.__mic = null; navigator.mediaDevices.getUserMedia({audio: true}).then(s => { s.getTracks().forEach(t => t.stop()); window.__mic = 'ok'; }).catch(e => { window.__mic = e.name; })"
+            )
             t = time.time()
             while time.time() - t < 20 and not self.js("window.__mic"):
                 time.sleep(0.2)
@@ -811,7 +949,7 @@ class App:
             assert got in ("ok", "NotFoundError"), f"getUserMedia: {got}"
             self.mic_result = got
 
-        def dialog_when_busy():
+        def dialog_when_busy() -> None:
             # giả lập "đang tạo": app phải chặn việc đóng và hỏi trong trang; "Ở lại" thì không có gì xảy ra
             real = self.busy
             self.busy = lambda: True
@@ -822,16 +960,22 @@ class App:
             t = time.time()
             while time.time() - t < 10 and not self.js("!!document.querySelector('#closeBg')"):
                 time.sleep(0.2)
-            assert self.js("!!document.querySelector('#closeBg') && !!document.querySelector('#closeQuit')"), "hộp hỏi không hiện"
-            assert self.js("document.querySelector('.modal').innerText.includes('Chạy nền tiếp') || document.querySelector('.modal').innerText.includes('Đang tạo')")
-            self.js("document.querySelector('.modal .btn.ghost').click()")   # Ở lại
+            assert self.js(
+                "!!document.querySelector('#closeBg') && !!document.querySelector('#closeQuit')"
+            ), "hộp hỏi không hiện"
+            assert self.js(
+                "document.querySelector('.modal').innerText.includes('Chạy nền tiếp') || document.querySelector('.modal').innerText.includes('Đang tạo')"
+            )
+            self.js("document.querySelector('.modal .btn.ghost').click()")  # Ở lại
             assert not self.quitting
 
-        def idle_close_allowed():
-            assert self.on_closing() is True   # không có việc gì: cho đóng ngay
+        def idle_close_allowed() -> None:
+            assert self.on_closing() is True  # không có việc gì: cho đóng ngay
 
-        def zoom_keys():
-            self.js("window.__z = null; window.pywebview.api.zoom('in').then(z => { window.__z = z; })")
+        def zoom_keys() -> None:
+            self.js(
+                "window.__z = null; window.pywebview.api.zoom('in').then(z => { window.__z = z; })"
+            )
             t = time.time()
             while time.time() - t < 5 and not self.js("window.__z"):
                 time.sleep(0.1)
@@ -840,8 +984,13 @@ class App:
             time.sleep(0.3)
             assert self.zoom == 1.0
 
-        if os.getenv("GV_SELFTEST_ROUND") == "2":   # mở lại app lần nữa với cùng thư mục: cổng và localStorage phải còn
-            for name, fn in [("app: mở lại app — server lên lại, /api/engines 200", engines), ("app: mở lại app — dùng lại đúng cổng cũ và localStorage còn nguyên", persisted)]:
+        if (
+            os.getenv("GV_SELFTEST_ROUND") == "2"
+        ):  # mở lại app lần nữa với cùng thư mục: cổng và localStorage phải còn
+            for name, fn in [
+                ("app: mở lại app — server lên lại, /api/engines 200", engines),
+                ("app: mở lại app — dùng lại đúng cổng cũ và localStorage còn nguyên", persisted),
+            ]:
                 self.check(name, fn)
             return self.finish_selftest()
         for name, fn in [
@@ -850,13 +999,25 @@ class App:
             ("app: giao diện dựng xong trong cửa sổ (#view có nội dung)", ui_mounted),
             ("app: window.pywebview + js_api (backend gtk) có trong trang", in_webview),
             ("app: localStorage dùng được (lưu bền ở thư mục riêng của app)", local_storage),
-            ("app: mở lần 2 → bản đang chạy được nhắc đưa cửa sổ lên, bản 2 thoát mã 0, không có server thứ hai", single_instance),
-            ("app: Tải về — save_url chép từ server, mã dùng một lần, từ chối đường dẫn ngoài", save_via_server),
+            (
+                "app: mở lần 2 → bản đang chạy được nhắc đưa cửa sổ lên, bản 2 thoát mã 0, không có server thứ hai",
+                single_instance,
+            ),
+            (
+                "app: Tải về — save_url chép từ server, mã dùng một lần, từ chối đường dẫn ngoài",
+                save_via_server,
+            ),
             ("app: Tải về — PUT /_app/save/<mã> ghi nguyên khối blob 300 KB", save_blob),
-            ("app: kéo thả — đường dẫn file được giữ, phát lại qua URL một lần, bỏ thư mục", dropped),
+            (
+                "app: kéo thả — đường dẫn file được giữ, phát lại qua URL một lần, bỏ thư mục",
+                dropped,
+            ),
             ("app: micro — getUserMedia không bị chặn quyền trong cửa sổ app", microphone_allowed),
             ("app: phóng to / thu nhỏ qua js_api, về mặc định", zoom_keys),
-            ("app: đang tạo mà đóng cửa sổ → chặn đóng + hộp hỏi “Chạy nền tiếp / Tạm dừng và thoát / Ở lại”", dialog_when_busy),
+            (
+                "app: đang tạo mà đóng cửa sổ → chặn đóng + hộp hỏi “Chạy nền tiếp / Tạm dừng và thoát / Ở lại”",
+                dialog_when_busy,
+            ),
             ("app: không có việc gì thì đóng cửa sổ là thoát (không hỏi)", idle_close_allowed),
         ]:
             self.check(name, fn)
@@ -867,15 +1028,21 @@ class App:
         self.quit(pause=False)
 
     def report_selftest(self) -> int:
-        def server_stopped():
-            assert self.server_thread is None or not self.server_thread.is_alive(), "server còn chạy"
+        def server_stopped() -> None:
+            assert self.server_thread is None or not self.server_thread.is_alive(), (
+                "server còn chạy"
+            )
             assert self.uv is not None and self.uv.should_exit
 
-        self.check("app: thoát chủ động — luồng server đã dừng (lifespan tắt hàng đợi)", server_stopped)
+        self.check(
+            "app: thoát chủ động — luồng server đã dừng (lifespan tắt hàng đợi)", server_stopped
+        )
         ok = True
         for good, name, why in self.results:
             ok &= good
-            print(("PASS  " if good else "FAIL  ") + name + ("" if good else f" — {why}"), flush=True)
+            print(
+                ("PASS  " if good else "FAIL  ") + name + ("" if good else f" — {why}"), flush=True
+            )
         return 0 if ok else 1
 
 
@@ -908,13 +1075,27 @@ def selftest_supervisor() -> int:
         print("SKIP  app --selftest: không có màn hình đồ hoạ (DISPLAY / WAYLAND_DISPLAY)")
         return 0
     mark, tmp = uuid.uuid4().hex, Path(tempfile.mkdtemp(prefix="gv_selftest_"))
-    env = {**os.environ, "GV_SELFTEST_MARK": mark, "TTS_DATA_DIR": str(tmp / "data"), "GV_RUNTIME_DIR": str(tmp / "run"),
-           "XDG_CONFIG_HOME": str(tmp / "config"), "XDG_STATE_HOME": str(tmp / "state"), "XDG_DATA_HOME": str(tmp / "share")}
+    env = {
+        **os.environ,
+        "GV_SELFTEST_MARK": mark,
+        "TTS_DATA_DIR": str(tmp / "data"),
+        "GV_RUNTIME_DIR": str(tmp / "run"),
+        "XDG_CONFIG_HOME": str(tmp / "config"),
+        "XDG_STATE_HOME": str(tmp / "state"),
+        "XDG_DATA_HOME": str(tmp / "share"),
+    }
     try:
         rc = 0
-        for rnd in ("1", "2"):   # vòng 2 mở lại app với cùng thư mục tạm để kiểm cổng nhớ lại + localStorage còn
+        for rnd in (
+            "1",
+            "2",
+        ):  # vòng 2 mở lại app với cùng thư mục tạm để kiểm cổng nhớ lại + localStorage còn
             try:
-                rc |= subprocess.run([sys.executable, str(Path(__file__).resolve()), "--selftest"], env={**env, "GV_SELFTEST_ROUND": rnd}, timeout=300).returncode
+                rc |= subprocess.run(
+                    [sys.executable, str(Path(__file__).resolve()), "--selftest"],
+                    env={**env, "GV_SELFTEST_ROUND": rnd},
+                    timeout=300,
+                ).returncode
             except subprocess.TimeoutExpired:
                 print(f"FAIL  app: selftest vòng {rnd} quá 300 giây (treo)")
                 rc = 1
@@ -926,7 +1107,9 @@ def selftest_supervisor() -> int:
             time.sleep(0.3)
             left = marked_pids(mark)
         if left:
-            print(f"FAIL  app: sau khi thoát vẫn còn tiến trình sót lại — {[(p, comm(p)) for p in left]}")
+            print(
+                f"FAIL  app: sau khi thoát vẫn còn tiến trình sót lại — {[(p, comm(p)) for p in left]}"
+            )
             for p in left:
                 try:
                     os.kill(p, 9)
@@ -942,9 +1125,17 @@ def selftest_supervisor() -> int:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="giong-viet", description=__doc__.split("\n")[0])
-    ap.add_argument("route", nargs="?", default="", help="mở thẳng tới màn này, vd. /doc, /sach/them, /giong")
-    ap.add_argument("--selftest", action="store_true", help="khởi động server + cửa sổ ẩn, kiểm tra, đóng sạch")
-    ap.add_argument("--no-tray", action="store_true", help="không dùng khay hệ thống (chạy nền = thu nhỏ cửa sổ)")
+    ap.add_argument(
+        "route", nargs="?", default="", help="mở thẳng tới màn này, vd. /doc, /sach/them, /giong"
+    )
+    ap.add_argument(
+        "--selftest", action="store_true", help="khởi động server + cửa sổ ẩn, kiểm tra, đóng sạch"
+    )
+    ap.add_argument(
+        "--no-tray",
+        action="store_true",
+        help="không dùng khay hệ thống (chạy nền = thu nhỏ cửa sổ)",
+    )
     ap.add_argument("--debug", action="store_true", help="như GV_DEBUG=1")
     args = ap.parse_args(argv)
     global DEBUG

@@ -28,11 +28,11 @@ import bookq
 import books
 import dialogue
 import exporter
+import history
 import lexicon
+import library
 import narrate
 import settings
-import history
-import library
 import text_normalize
 from engines.registry import ENGINES
 
@@ -69,11 +69,13 @@ def check_lib_voice(e, voice: str) -> None:
     if not voice.startswith(library.LIB_PREFIX):
         return
     try:
-        meta = library.get(voice[len(library.LIB_PREFIX):])
+        meta = library.get(voice[len(library.LIB_PREFIX) :])
     except library.NotFound:
         raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
     if meta["engine"] != e.id:
-        raise HTTPException(400, f"Giọng này thuộc engine '{meta['engine']}', không dùng được với '{e.id}'.")
+        raise HTTPException(
+            400, f"Giọng này thuộc engine '{meta['engine']}', không dùng được với '{e.id}'."
+        )
     reason = e.unusable_reason(meta)
     if reason:
         raise HTTPException(400, f"Giọng '{meta['name']}' không dùng được: {reason}.")
@@ -116,17 +118,29 @@ def unusable(meta: dict) -> str:
 
 def lib_entry(meta: dict) -> dict:
     reason = unusable(meta)
-    return {**meta, "voice": library.LIB_PREFIX + meta["id"], "usable": not reason, "unusable_reason": reason}
+    return {
+        **meta,
+        "voice": library.LIB_PREFIX + meta["id"],
+        "usable": not reason,
+        "unusable_reason": reason,
+    }
 
 
 def lib_as_voice(meta: dict) -> dict:
     """Giọng thư viện dưới dạng phần tử của /api/voices."""
     reason = unusable(meta)
     return {
-        "id": library.LIB_PREFIX + meta["id"], "label": meta["name"], "gender": meta.get("gender", ""),
-        "region": meta.get("region", ""), "tags": meta.get("tags", []), "description": meta.get("description", ""),
-        "source": meta.get("source", "clone"), "favorite": meta.get("favorite", False), "name": meta["name"],
-        "usable": not reason, "unusable_reason": reason,
+        "id": library.LIB_PREFIX + meta["id"],
+        "label": meta["name"],
+        "gender": meta.get("gender", ""),
+        "region": meta.get("region", ""),
+        "tags": meta.get("tags", []),
+        "description": meta.get("description", ""),
+        "source": meta.get("source", "clone"),
+        "favorite": meta.get("favorite", False),
+        "name": meta["name"],
+        "usable": not reason,
+        "unusable_reason": reason,
         **{k: meta[k] for k in ("voice_a_name", "voice_b_name", "slider") if k in meta},
     }
 
@@ -134,13 +148,17 @@ def lib_as_voice(meta: dict) -> dict:
 async def engine_voices(e) -> list[dict]:
     """Giọng của engine (preset) + giọng thư viện thuộc engine đó, kèm cờ favorite."""
     favs = library.favorites()
-    out = [{"source": "preset", "usable": True, **v, "favorite": f"{e.id}:{v['id']}" in favs} for v in await e.voices()]
+    out = [
+        {"source": "preset", "usable": True, **v, "favorite": f"{e.id}:{v['id']}" in favs}
+        for v in await e.voices()
+    ]
     if e.capabilities()["clone"]:
         out += [lib_as_voice(m) for m in library.list_voices(engine=e.id)]
     return out
 
 
 # ──────────────────────────────── API ────────────────────────────────────
+
 
 class NoCacheStatic(StaticFiles):
     """CSS / JS của giao diện: luôn hỏi lại server (có ETag) để sửa file là thấy ngay, không dính bản cũ trong trình duyệt."""
@@ -178,8 +196,12 @@ def settings_info():
 
 
 class SettingsIn(BaseModel):
-    default_voice: dict | None = None   # {"engine", "voice"} hoặc null = bỏ chọn (không gửi = giữ nguyên)
-    notify: bool | None = None          # báo khi tạo sách nói xong (thông báo desktop của server; giao diện web cũng theo)
+    default_voice: dict | None = (
+        None  # {"engine", "voice"} hoặc null = bỏ chọn (không gửi = giữ nguyên)
+    )
+    notify: bool | None = (
+        None  # báo khi tạo sách nói xong (thông báo desktop của server; giao diện web cũng theo)
+    )
 
 
 @app.put("/api/settings")
@@ -217,9 +239,17 @@ def overview():
     for b in books.list_books():
         done = 0
         if b["status"] == "ready":
-            done = sum(1 for c in books.list_chapters(b["id"]) if c.get("status") in ("done", "exported"))
-        items.append({**b, "done": done, "queued": queued_by_book.get(b["id"], 0),
-                      "running": bool(q["running"] and q["running"]["book"] == b["id"])})
+            done = sum(
+                1 for c in books.list_chapters(b["id"]) if c.get("status") in ("done", "exported")
+            )
+        items.append(
+            {
+                **b,
+                "done": done,
+                "queued": queued_by_book.get(b["id"], 0),
+                "running": bool(q["running"] and q["running"]["book"] == b["id"]),
+            }
+        )
     current = None
     active = (q["running"] or {}).get("book") or next(iter(queued_by_book), None)
     if active and (q["running"] or queued_by_book):
@@ -229,9 +259,17 @@ def overview():
                 bs = bookq.Q.book_status(active, books.get(active)["voice"]["engine"])
             except books.NotFound:
                 bs = {}
-            current = {"book": active, "title": book["title"], "chapters": book["chapters"], "done": book["done"],
-                       "chapter": (q["running"] or {}).get("n"), "paused": q["paused"], "state": q["state"],
-                       "estimate_seconds": bs.get("estimate_seconds"), "note": q["note"]}
+            current = {
+                "book": active,
+                "title": book["title"],
+                "chapters": book["chapters"],
+                "done": book["done"],
+                "chapter": (q["running"] or {}).get("n"),
+                "paused": q["paused"],
+                "state": q["state"],
+                "estimate_seconds": bs.get("estimate_seconds"),
+                "note": q["note"],
+            }
     return {"queue": q, "books": items, "current": current}
 
 
@@ -290,7 +328,7 @@ async def voice_label(e, voice: str) -> str:
     """Tên hiển thị của giọng để lưu vào lịch sử (giọng bị xoá sau này vẫn còn tên)."""
     try:
         if voice.startswith(library.LIB_PREFIX):
-            return library.get(voice[len(library.LIB_PREFIX):])["name"]
+            return library.get(voice[len(library.LIB_PREFIX) :])["name"]
         for v in await e.voices():
             if v["id"] == voice:
                 return v.get("name") or v["label"]
@@ -308,7 +346,9 @@ async def tts(
     pitch: int = Form(0),  # Hz: chỉ engine có capabilities.pitch
     save_as: str = Form(""),  # có ref_audio + save_as: lưu giọng vào thư viện (cần consent=true)
     consent: bool = Form(False),
-    normalize: bool = Form(True),  # chuẩn hoá văn bản (chỉ engine có capabilities.normalize, tức VieNeu)
+    normalize: bool = Form(
+        True
+    ),  # chuẩn hoá văn bản (chỉ engine có capabilities.normalize, tức VieNeu)
     ref_audio: UploadFile | None = File(None),
 ):
     text = text.strip()
@@ -320,8 +360,12 @@ async def tts(
     pitch = max(-50, min(50, pitch))
     e = get_engine(engine)
     check_lib_voice(e, voice)
-    synth_text = text_normalize.normalize(text) if normalize and e.capabilities().get("normalize") else text
-    pausey = text_normalize.has_pause(text)  # có thẻ [nghỉ Ns]: đi qua pipeline hội thoại (mọi engine)
+    synth_text = (
+        text_normalize.normalize(text) if normalize and e.capabilities().get("normalize") else text
+    )
+    pausey = text_normalize.has_pause(
+        text
+    )  # có thẻ [nghỉ Ns]: đi qua pipeline hội thoại (mọi engine)
     if pausey:
         try:
             text_normalize.split_pauses(text)
@@ -335,22 +379,30 @@ async def tts(
         if e.capabilities()["clone"] and ref_audio is not None and ref_audio.filename:
             raw = await read_upload(ref_audio)
             if save_as.strip():
-                voice = library.LIB_PREFIX + (await add_to_library(e, raw, consent, name=save_as))["id"]
+                voice = (
+                    library.LIB_PREFIX + (await add_to_library(e, raw, consent, name=save_as))["id"]
+                )
             else:
                 import tempfile
 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(ref_audio.filename).suffix or ".wav") as f:
+                with tempfile.NamedTemporaryFile(
+                    delete=False, suffix=Path(ref_audio.filename).suffix or ".wav"
+                ) as f:
                     f.write(raw)
                     tmp_path = f.name
         if pausey:
-            wav = await dialogue.render_text(e, voice, text, speed, normalize, pitch, tmp_path, warnings)
+            wav = await dialogue.render_text(
+                e, voice, text, speed, normalize, pitch, tmp_path, warnings
+            )
             data, mp3 = await anyio.to_thread.run_sync(dialogue.encode_outputs, wav)
             mime = "audio/wav"
             if mp3:
                 extra_files["mp3"] = mp3
             await anyio.to_thread.run_sync(dialogue.prune_cache)
         else:
-            data, mime = await e.synthesize(synth_text, voice, speed, pitch=pitch, ref_audio=tmp_path, warnings=warnings)
+            data, mime = await e.synthesize(
+                synth_text, voice, speed, pitch=pitch, ref_audio=tmp_path, warnings=warnings
+            )
     except HTTPException:
         raise
     except Exception as ex:
@@ -360,13 +412,28 @@ async def tts(
             Path(tmp_path).unlink(missing_ok=True)
 
     ext = "mp3" if mime == "audio/mpeg" else "wav"
-    headers = {"Content-Disposition": f'attachment; filename="giong-noi.{ext}"', **warning_headers(warnings)}
+    headers = {
+        "Content-Disposition": f'attachment; filename="giong-noi.{ext}"',
+        **warning_headers(warnings),
+    }
     try:  # lịch sử chỉ là tiện ích: lỗi ghi đĩa không được làm hỏng bản vừa tạo
-        headers["X-History-Id"] = history.save("tts", {
-            "text": text, "engine": e.id, "voice": voice, "voice_label": await voice_label(e, voice) if voice else "",
-            "speed": speed, "pitch": pitch, "normalize": normalize, "cloned_ref": bool(tmp_path),
-            "has_mp3": "mp3" in extra_files,
-        }, data, ext, extra_files)
+        headers["X-History-Id"] = history.save(
+            "tts",
+            {
+                "text": text,
+                "engine": e.id,
+                "voice": voice,
+                "voice_label": await voice_label(e, voice) if voice else "",
+                "speed": speed,
+                "pitch": pitch,
+                "normalize": normalize,
+                "cloned_ref": bool(tmp_path),
+                "has_mp3": "mp3" in extra_files,
+            },
+            data,
+            ext,
+            extra_files,
+        )
     except OSError as ex:
         log.warning("Không lưu được lịch sử: %s", ex)
     return Response(data, media_type=mime, headers=headers)
@@ -374,8 +441,13 @@ async def tts(
 
 # ───────────────────────────── trộn giọng ─────────────────────────────
 
+
 def voice_name(voice: str) -> str:
-    return library.get(voice[len(library.LIB_PREFIX):])["name"] if voice.startswith(library.LIB_PREFIX) else voice
+    return (
+        library.get(voice[len(library.LIB_PREFIX) :])["name"]
+        if voice.startswith(library.LIB_PREFIX)
+        else voice
+    )
 
 
 async def build_mix(e, voice_a: str, voice_b: str, slider: float, variant: str) -> dict:
@@ -416,7 +488,11 @@ async def mix_preview(
     data = await build_mix(e, voice_a, voice_b, slider, variant)
     try:
         audio, mime = await e.synthesize(
-            text_normalize.normalize(text) if e.capabilities().get("normalize") else text, "", 0, voice_data=data)
+            text_normalize.normalize(text) if e.capabilities().get("normalize") else text,
+            "",
+            0,
+            voice_data=data,
+        )
     except Exception as ex:
         raise HTTPException(e.error_status, f"{e.name} lỗi: {ex}")
     return Response(audio, media_type=mime, headers={"X-Mix-Alpha": f"{data['alpha']:.3f}"})
@@ -440,21 +516,33 @@ async def mix_save(
     codes = data["codes"] if data["codes"] is not None else np.zeros(0, dtype=np.int64)
     try:
         meta = library.create_mix(
-            engine=e.id, cache_name=data["cache_name"], arrays={"speaker_emb": data["speaker_emb"], "codes": codes},
+            engine=e.id,
+            cache_name=data["cache_name"],
+            arrays={"speaker_emb": data["speaker_emb"], "codes": codes},
             mix_meta={
-                "voice_a": voice_a, "voice_b": voice_b, "voice_a_name": voice_name(voice_a),
-                "voice_b_name": voice_name(voice_b), "slider": slider, "alpha": round(data["alpha"], 4),
-                "variant": data["variant"], "mode": data["mode"], "codes_from": data["codes_from"],
+                "voice_a": voice_a,
+                "voice_b": voice_b,
+                "voice_a_name": voice_name(voice_a),
+                "voice_b_name": voice_name(voice_b),
+                "slider": slider,
+                "alpha": round(data["alpha"], 4),
+                "variant": data["variant"],
+                "mode": data["mode"],
+                "codes_from": data["codes_from"],
             },
-            name=name, tags=tags, gender=gender, region=region, description=description,
+            name=name,
+            tags=tags,
+            gender=gender,
+            region=region,
+            description=description,
         )
     except library.LibraryError as ex:
         raise HTTPException(400, str(ex))
     return lib_entry(meta)
 
 
-
 # ───────────────────────────── thư viện giọng ─────────────────────────────
+
 
 @app.get("/api/library")
 def library_list(engine: str = "", tag: str = "", gender: str = ""):
@@ -474,8 +562,14 @@ async def library_add(
 ):
     e = get_engine(engine)
     meta = await add_to_library(
-        e, await read_upload(ref_audio), consent,
-        name=name, tags=tags, gender=gender, region=region, description=description,
+        e,
+        await read_upload(ref_audio),
+        consent,
+        name=name,
+        tags=tags,
+        gender=gender,
+        region=region,
+        description=description,
     )
     return lib_entry(meta)
 
@@ -491,8 +585,17 @@ def library_patch(
     favorite: bool | None = Form(None),
 ):
     try:
-        return lib_entry(library.update(voice_id, name=name, tags=tags, gender=gender, region=region,
-                                        description=description, favorite=favorite))
+        return lib_entry(
+            library.update(
+                voice_id,
+                name=name,
+                tags=tags,
+                gender=gender,
+                region=region,
+                description=description,
+                favorite=favorite,
+            )
+        )
     except library.NotFound:
         raise HTTPException(404, "Không tìm thấy giọng trong thư viện.")
     except library.LibraryError as ex:
@@ -536,6 +639,7 @@ async def library_preview(voice_id: str):
 
 # ───────────────────────────── hội thoại ─────────────────────────────
 
+
 class ScriptIn(BaseModel):
     script: str
 
@@ -570,8 +674,13 @@ def job_or_404(job_id: str):
 @app.post("/api/dialogue/parse")
 def dialogue_parse(req: ScriptIn):
     lines = parse_or_400(req.script)
-    return {"speakers": dialogue.speakers_of(lines), "chars": len(req.script),
-            "lines": [{"i": l.i, "speaker": l.speaker, "text": l.text, "pause": l.pause} for l in lines]}
+    return {
+        "speakers": dialogue.speakers_of(lines),
+        "chars": len(req.script),
+        "lines": [
+            {"i": ln.i, "speaker": ln.speaker, "text": ln.text, "pause": ln.pause} for ln in lines
+        ],
+    }
 
 
 @app.post("/api/dialogue")
@@ -581,21 +690,39 @@ async def dialogue_create(req: DialogueIn):
         raise HTTPException(400, "Kịch bản trống.")
     cast = {dialogue.norm_name(k): v for k, v in req.cast.items()}
     names = dialogue.speakers_of(lines)
-    missing = [n for n in names if not (cast.get(n) or {}).get("engine") or not (cast.get(n) or {}).get("voice")]
+    missing = [
+        n
+        for n in names
+        if not (cast.get(n) or {}).get("engine") or not (cast.get(n) or {}).get("voice")
+    ]
     if missing:
-        return JSONResponse({"error": "Chưa gán giọng cho: " + ", ".join(missing), "missing": missing}, status_code=400)
+        return JSONResponse(
+            {"error": "Chưa gán giọng cho: " + ", ".join(missing), "missing": missing},
+            status_code=400,
+        )
     resolved, labels = {}, {}
     for n in names:
         e = get_engine(cast[n]["engine"])
         check_lib_voice(e, cast[n]["voice"])
         resolved[n] = (e, cast[n]["voice"])
         labels[n] = await voice_label(e, cast[n]["voice"])
-    meta = {"script": req.script, "cast": {n: {**cast[n], "label": labels[n]} for n in names}, "speed": req.speed,
-            "gap_ms": req.gap_ms,
-            "paragraph_gap_ms": req.paragraph_gap_ms, "normalize": req.normalize}
-    job = dialogue.create_job(lines, resolved, max(-50, min(200, req.speed)),
-                              max(0, min(5000, req.gap_ms)), max(0, min(10000, req.paragraph_gap_ms)),
-                              normalize=req.normalize, meta=meta)
+    meta = {
+        "script": req.script,
+        "cast": {n: {**cast[n], "label": labels[n]} for n in names},
+        "speed": req.speed,
+        "gap_ms": req.gap_ms,
+        "paragraph_gap_ms": req.paragraph_gap_ms,
+        "normalize": req.normalize,
+    }
+    job = dialogue.create_job(
+        lines,
+        resolved,
+        max(-50, min(200, req.speed)),
+        max(0, min(5000, req.gap_ms)),
+        max(0, min(10000, req.paragraph_gap_ms)),
+        normalize=req.normalize,
+        meta=meta,
+    )
     return {"job_id": job.id, "total": len(lines)}
 
 
@@ -612,8 +739,11 @@ def dialogue_audio(job_id: str, fmt: str = "wav"):
         raise HTTPException(409, "Audio chưa sẵn sàng.")
     if fmt not in ("wav", "mp3") or (fmt == "mp3" and not job.has_mp3):
         raise HTTPException(404, "Không có định dạng này (MP3 cần ffmpeg).")
-    return FileResponse(job.dir / f"out.{fmt}", media_type="audio/mpeg" if fmt == "mp3" else "audio/wav",
-                        filename=f"hoi-thoai.{fmt}")
+    return FileResponse(
+        job.dir / f"out.{fmt}",
+        media_type="audio/mpeg" if fmt == "mp3" else "audio/wav",
+        filename=f"hoi-thoai.{fmt}",
+    )
 
 
 @app.get("/api/dialogue/{job_id}/line/{i}/audio")
@@ -668,6 +798,7 @@ def projects_delete(project_id: str):
 
 # ───────────────────────────── sách nói ─────────────────────────────
 
+
 def default_book_voice() -> dict:
     """Giọng kể mặc định của truyện mới: giọng mặc định người dùng đã chọn (nếu còn dùng được), không thì VieNeu (Hải Đăng), không thì edge."""
     chosen = settings.load()["default_voice"]
@@ -695,7 +826,10 @@ def book_or_404(book_id: str) -> dict:
 def busy_check(book_id: str) -> None:
     """Tách lại chương / xoá truyện xoá audio đã dựng: không làm khi chương của truyện này đang chạy; chương đang chờ thì bỏ khỏi hàng đợi."""
     if bookq.Q.running and bookq.Q.running["book"] == book_id:
-        raise HTTPException(409, "Đang tạo audio cho truyện này. Hãy huỷ hàng đợi (hoặc đợi chương đang chạy xong) rồi thử lại.")
+        raise HTTPException(
+            409,
+            "Đang tạo audio cho truyện này. Hãy huỷ hàng đợi (hoặc đợi chương đang chạy xong) rồi thử lại.",
+        )
     bookq.Q.forget_book(book_id)
 
 
@@ -722,14 +856,18 @@ class BookPatch(BaseModel):
     exceptions: list[dict] | None = None
     lexicon: list[dict] | None = None
     dialogue_voice: dict | None = None
-    dismiss_trial: bool | None = None   # "Để sau" trên banner tạo thử: bỏ book["trial"]
+    dismiss_trial: bool | None = None  # "Để sau" trên banner tạo thử: bỏ book["trial"]
 
 
 async def build_book(book_id: str, book: dict, body: SplitIn) -> tuple[dict, dict]:
     """Tách chương + làm sạch với cài đặt đã lưu, ghi đè bởi body (xem trước hoặc xác nhận). Trả (built, settings)."""
     try:
         settings = books.overrides(book, body.model_dump())
-        built = await anyio.to_thread.run_sync(lambda: books.build(books.load_docs(book_id, settings["split"].get("selector")), settings))
+        built = await anyio.to_thread.run_sync(
+            lambda: books.build(
+                books.load_docs(book_id, settings["split"].get("selector")), settings
+            )
+        )
     except books.BookError as ex:
         raise HTTPException(400, str(ex))
     return built, settings
@@ -741,15 +879,21 @@ def books_list():
 
 
 @app.post("/api/books/import")
-async def books_import(files: list[UploadFile] = File(...), title: str = Form(""), author: str = Form("")):
+async def books_import(
+    files: list[UploadFile] = File(...), title: str = Form(""), author: str = Form("")
+):
     data = []
     for f in files:
         raw = await f.read(books.MAX_FILE_BYTES + 1)
         if len(raw) > books.MAX_FILE_BYTES:
-            raise HTTPException(413, f"'{f.filename}' quá lớn (tối đa {books.MAX_FILE_BYTES // 2**20} MB).")
+            raise HTTPException(
+                413, f"'{f.filename}' quá lớn (tối đa {books.MAX_FILE_BYTES // 2**20} MB)."
+            )
         data.append((f.filename or "file.txt", raw))
     try:
-        return await anyio.to_thread.run_sync(books.import_files, data, title, author, default_book_voice())
+        return await anyio.to_thread.run_sync(
+            books.import_files, data, title, author, default_book_voice()
+        )
     except books.BookError as ex:
         raise HTTPException(400, str(ex))
 
@@ -776,9 +920,12 @@ def masked_words_add(body: MaskedIn):
 @app.get("/api/books/{book_id}")
 def books_get(book_id: str):
     book = book_or_404(book_id)
-    return {**book, "chapters_list": books.list_chapters(book_id) if book["status"] == "ready" else [],
-            "rules_catalog": [{"name": n, "label": label} for n, label in books.RULES],
-            "default_regex": books.DEFAULT_SPLIT_REGEX}
+    return {
+        **book,
+        "chapters_list": books.list_chapters(book_id) if book["status"] == "ready" else [],
+        "rules_catalog": [{"name": n, "label": label} for n, label in books.RULES],
+        "default_regex": books.DEFAULT_SPLIT_REGEX,
+    }
 
 
 @app.patch("/api/books/{book_id}")
@@ -802,11 +949,18 @@ def books_patch(book_id: str, body: BookPatch):
         if body.read_title is not None:
             book["read_title"] = body.read_title
         if body.paragraph_pause_s is not None:
-            book["paragraph_pause_s"] = books.validate_pause(body.paragraph_pause_s, "Nghỉ giữa các đoạn văn", 3)
+            book["paragraph_pause_s"] = books.validate_pause(
+                body.paragraph_pause_s, "Nghỉ giữa các đoạn văn", 3
+            )
         if body.title_pause_s is not None:
             book["title_pause_s"] = books.validate_pause(body.title_pause_s, "Nghỉ sau tiêu đề", 5)
         if body.split is not None:
-            sp = {**book["split"], **{k: v for k, v in body.split.items() if k in ("regex", "mode", "ops", "selector")}}
+            sp = {
+                **book["split"],
+                **{
+                    k: v for k, v in body.split.items() if k in ("regex", "mode", "ops", "selector")
+                },
+            }
             books.compile_split(sp["regex"])
             if "selector" in sp:
                 sp["selector"] = books.validate_selector(sp["selector"])
@@ -825,7 +979,11 @@ def books_patch(book_id: str, body: BookPatch):
             dv = body.dialogue_voice
             e = get_engine(str(dv.get("engine", "")))
             check_lib_voice(e, str(dv.get("voice", "")))
-            book["dialogue_voice"] = {"enabled": bool(dv.get("enabled")), "engine": e.id, "voice": str(dv["voice"])}
+            book["dialogue_voice"] = {
+                "enabled": bool(dv.get("enabled")),
+                "engine": e.id,
+                "voice": str(dv["voice"]),
+            }
     except (books.BookError, lexicon.LexiconError) as ex:
         raise HTTPException(400, str(ex))
     books.save(book)
@@ -845,9 +1003,15 @@ async def books_preview(book_id: str, body: SplitIn | None = None):
     """Xem trước danh sách chương với cài đặt hiện tại (có thể ghi đè bằng body); không ghi gì ra đĩa."""
     built, _ = await build_book(book_id, book_or_404(book_id), body or SplitIn())
     chapters = books.summarize(built)
-    return {"chapters": chapters, "stats": built["stats"], "rules": built["rules"], "dropped": built["dropped"],
-            "masked_unknown": built["masked_unknown"], "warnings": built["warnings"],
-            "total_chars": sum(c["chars"] for c in chapters)}
+    return {
+        "chapters": chapters,
+        "stats": built["stats"],
+        "rules": built["rules"],
+        "dropped": built["dropped"],
+        "masked_unknown": built["masked_unknown"],
+        "warnings": built["warnings"],
+        "total_chars": sum(c["chars"] for c in chapters),
+    }
 
 
 @app.post("/api/books/{book_id}/chapters")
@@ -888,10 +1052,12 @@ def books_chapter(book_id: str, n: int):
 
 def book_voices(book: dict):
     """(giọng kể, giọng lời thoại hoặc None) dạng (engine, voice); kiểm tra engine + giọng thư viện."""
+
     def one(v: dict):
         e = get_engine(v["engine"])
         check_lib_voice(e, v["voice"])
         return e, v["voice"]
+
     dv = book.get("dialogue_voice") or {}
     return one(book["voice"]), (one(dv) if dv.get("enabled") else None)
 
@@ -899,9 +1065,15 @@ def book_voices(book: dict):
 async def speak_book(book: dict, text: str, use_lexicon: bool = True) -> tuple[bytes, float]:
     narr, dlg = book_voices(book)
     try:
-        wav = await narrate.render(text, narr, dlg, book["speed"], book["normalize"],
-                                   book.get("lexicon") if use_lexicon else None,
-                                   lexicon.load_global() if use_lexicon else None)
+        wav = await narrate.render(
+            text,
+            narr,
+            dlg,
+            book["speed"],
+            book["normalize"],
+            book.get("lexicon") if use_lexicon else None,
+            lexicon.load_global() if use_lexicon else None,
+        )
         data, _ = await anyio.to_thread.run_sync(dialogue.encode_outputs, wav, False)
     except Exception as ex:
         raise HTTPException(narr[0].error_status, f"{narr[0].name} lỗi: {ex}")
@@ -919,7 +1091,11 @@ async def books_sample(book_id: str, n: int, use_lexicon: bool = True):
         raise HTTPException(404, "Không có chương này.")
     text = narrate.join_paras(books.excerpt_paras(books.paragraphs(book, meta, body), 300))
     data, seconds = await speak_book(book, text, use_lexicon)
-    return Response(data, media_type="audio/wav", headers={"X-Sample-Seconds": f"{seconds:.1f}", "X-Sample-Chars": str(len(text))})
+    return Response(
+        data,
+        media_type="audio/wav",
+        headers={"X-Sample-Seconds": f"{seconds:.1f}", "X-Sample-Chars": str(len(text))},
+    )
 
 
 class SpeakIn(BaseModel):
@@ -952,8 +1128,22 @@ async def books_suggest(book_id: str, min_count: int = 3, limit: int = 200):
         raise HTTPException(400, "Hãy tách chương trước.")
     known = {e["match"] for e in (book.get("lexicon") or []) + lexicon.load_global()}
     terms = await anyio.to_thread.run_sync(
-        lambda: lexicon.suggest_terms(books.iter_chapters(book_id), known, max(1, min_count), max(1, min(limit, 1000))))
-    return {"terms": [{"phrase": t.phrase, "count": t.count, "chapter": t.chapter, "example": t.example, "parent": t.parent} for t in terms]}
+        lambda: lexicon.suggest_terms(
+            books.iter_chapters(book_id), known, max(1, min_count), max(1, min(limit, 1000))
+        )
+    )
+    return {
+        "terms": [
+            {
+                "phrase": t.phrase,
+                "count": t.count,
+                "chapter": t.chapter,
+                "example": t.example,
+                "parent": t.parent,
+            }
+            for t in terms
+        ]
+    }
 
 
 @app.get("/api/lexicon")
@@ -971,12 +1161,16 @@ def lexicon_put(entries: list[dict]):
 
 # ───────────────────────────── lịch sử ─────────────────────────────
 
+
 @app.get("/api/history")
 def history_list(kind: str = ""):
     items = history.list_items(kind or None)
     for m in items:  # giọng thư viện đã bị xoá thì UI ghi "(đã xoá)"
         v = m.get("voice") or ""
-        m["voice_deleted"] = v.startswith(library.LIB_PREFIX) and not (library.VOICES / v[len(library.LIB_PREFIX):] / "meta.json").is_file()
+        m["voice_deleted"] = (
+            v.startswith(library.LIB_PREFIX)
+            and not (library.VOICES / v[len(library.LIB_PREFIX) :] / "meta.json").is_file()
+        )
     return items
 
 
@@ -986,7 +1180,9 @@ def history_audio(item_id: str, fmt: str = ""):
         path, ext = history.audio_path(item_id, fmt or None)
     except KeyError:
         raise HTTPException(404, "Không tìm thấy bản trong lịch sử.")
-    return FileResponse(path, media_type="audio/mpeg" if ext == "mp3" else "audio/wav", filename=f"giong-noi.{ext}")
+    return FileResponse(
+        path, media_type="audio/mpeg" if ext == "mp3" else "audio/wav", filename=f"giong-noi.{ext}"
+    )
 
 
 @app.delete("/api/history/{item_id}")
@@ -1015,6 +1211,7 @@ async def validation_error(_, exc: RequestValidationError):
 
 # ───────────── hàng đợi tạo audio (Phase 6c) ─────────────
 
+
 class TrialIn(BaseModel):
     chars: int = 900
     offset: float = 0.0
@@ -1022,7 +1219,7 @@ class TrialIn(BaseModel):
 
 @app.post("/api/books/{book_id}/chapters/{n}/trial")
 async def books_trial(book_id: str, n: int, body: TrialIn | None = None):
-    """"Đọc thử 1 phút": xếp một đoạn ~900 ký tự vào hàng đợi ưu tiên cao nhất (chen vào giữa hai mảnh của chương đang chạy).
+    """ "Đọc thử 1 phút": xếp một đoạn ~900 ký tự vào hàng đợi ưu tiên cao nhất (chen vào giữa hai mảnh của chương đang chạy).
     offset 0..1 là vị trí bắt đầu trong chương (0 = đầu chương, có đọc tiêu đề). Hỏi tiến độ: GET /api/trials/{id}."""
     body = body or TrialIn()
     book = book_or_404(book_id)
@@ -1033,7 +1230,11 @@ async def books_trial(book_id: str, n: int, body: TrialIn | None = None):
     except books.NotFound:
         raise HTTPException(404, "Không có chương này.")
     narr, dlg = book_voices(book)
-    excerpt = narrate.join_paras(books.excerpt_paras(books.paragraphs(book, meta, text, title=body.offset == 0), body.chars, body.offset))
+    excerpt = narrate.join_paras(
+        books.excerpt_paras(
+            books.paragraphs(book, meta, text, title=body.offset == 0), body.chars, body.offset
+        )
+    )
     try:
         t = bookq.Q.submit_trial(book, n, excerpt, narr, dlg)
     except (bookq.QueueError, ValueError) as ex:
@@ -1051,7 +1252,14 @@ def trial_or_404(tid: str) -> bookq.Trial:
 @app.get("/api/trials/{tid}")
 def trial_status(tid: str):
     t = trial_or_404(tid)
-    return {"id": t.id, "status": t.status, "done": t.done, "total": t.total, "seconds": round(t.seconds, 1), "error": t.error}
+    return {
+        "id": t.id,
+        "status": t.status,
+        "done": t.done,
+        "total": t.total,
+        "seconds": round(t.seconds, 1),
+        "error": t.error,
+    }
 
 
 @app.get("/api/trials/{tid}/audio")
@@ -1068,12 +1276,14 @@ def queue_state(book_id: str | None = None) -> dict:
     book = book_or_404(book_id)
     out = bookq.Q.book_status(book_id, book["voice"]["engine"])
     out["exports"] = exporter.list_files(book_id)
-    out["trial"] = book.get("trial")   # {limit, done_at} khi truyện đang ở giai đoạn "tạo thử N chương"
+    out["trial"] = book.get(
+        "trial"
+    )  # {limit, done_at} khi truyện đang ở giai đoạn "tạo thử N chương"
     n, size = books.purgeable(book_id)
     out["purgeable"] = {"chapters": n, "bytes": size}
     try:
         out["bench"] = json.loads(bookq.BENCH_PATH.read_text(encoding="utf-8")).get("vieneu")
-    except (OSError, ValueError):
+    except OSError, ValueError:
         out["bench"] = None
     return out
 
@@ -1084,11 +1294,13 @@ def queue_get(book: str | None = None):
 
 
 class RunIn(BaseModel):
-    chapters: list[int] | None = None   # None = mọi chương chưa xong của truyện
-    limit: int | None = None            # chỉ lấy N chương đầu trong danh sách trên ("Chạy thử 5 chương đầu")
-    regenerate: bool = False            # xoá audio cũ và dựng lại bằng model (bỏ qua cache)
-    stale_only: bool = False            # chỉ chương đã dựng bằng cấu hình cũ (kèm regenerate)
-    trial: bool = False                 # "tạo thử N chương" (N = limit): ghi book["trial"], xong thì banner "Tạo tiếp"
+    chapters: list[int] | None = None  # None = mọi chương chưa xong của truyện
+    limit: int | None = None  # chỉ lấy N chương đầu trong danh sách trên ("Chạy thử 5 chương đầu")
+    regenerate: bool = False  # xoá audio cũ và dựng lại bằng model (bỏ qua cache)
+    stale_only: bool = False  # chỉ chương đã dựng bằng cấu hình cũ (kèm regenerate)
+    trial: bool = (
+        False  # "tạo thử N chương" (N = limit): ghi book["trial"], xong thì banner "Tạo tiếp"
+    )
 
 
 @app.post("/api/books/{book_id}/queue/run")
@@ -1118,7 +1330,9 @@ def queue_run(book_id: str, body: RunIn | None = None):
         raise HTTPException(400, str(ex))
     if body.trial:
         book["trial"] = {"limit": len(ns), "done_at": None}
-    elif body.chapters is None and not body.stale_only:  # "Tạo tiếp" / tạo cả truyện: hết giai đoạn thử
+    elif (
+        body.chapters is None and not body.stale_only
+    ):  # "Tạo tiếp" / tạo cả truyện: hết giai đoạn thử
         book.pop("trial", None)
     books.save(book)
     return {**res, **queue_state(book_id)}
@@ -1193,16 +1407,22 @@ async def books_chapter_audio(book_id: str, n: int, kbps: int = 64):
     if meta.get("status") != "done" or not books.chapter_audio(book_id, n).is_file():
         raise HTTPException(409, "Chương này chưa được tạo audio.")
     try:
-        path = await anyio.to_thread.run_sync(exporter.chapter_mp3, book, meta, kbps, book["chapters"]["count"])
+        path = await anyio.to_thread.run_sync(
+            exporter.chapter_mp3, book, meta, kbps, book["chapters"]["count"]
+        )
     except exporter.ExportError as ex:
         raise HTTPException(400, str(ex))
-    return FileResponse(path, media_type="audio/mpeg", filename=f"{n:04d} - {exporter.safe_name(meta.get('title') or str(n))}.mp3")
+    return FileResponse(
+        path,
+        media_type="audio/mpeg",
+        filename=f"{n:04d} - {exporter.safe_name(meta.get('title') or str(n))}.mp3",
+    )
 
 
 class ExportIn(BaseModel):
-    kind: str = "mp3zip"                # mp3zip | m4b
-    chapters: list[int] | None = None   # None = mọi chương đã xong
-    kbps: int = 64                      # MP3: 64 / 80 / 96 (m4b luôn AAC 64k)
+    kind: str = "mp3zip"  # mp3zip | m4b
+    chapters: list[int] | None = None  # None = mọi chương đã xong
+    kbps: int = 64  # MP3: 64 / 80 / 96 (m4b luôn AAC 64k)
 
 
 @app.post("/api/books/{book_id}/export")
@@ -1220,8 +1440,18 @@ def export_status(jid: str):
     j = exporter.JOBS.get(jid)
     if j is None:
         raise HTTPException(404, "Không tìm thấy việc xuất (đã hết hạn?).")
-    return {"id": j.id, "book": j.book, "kind": j.kind, "status": j.status, "done": j.done, "total": j.total, "chapters": j.chapters,
-            "file": j.file, "size": j.size, "error": j.error}
+    return {
+        "id": j.id,
+        "book": j.book,
+        "kind": j.kind,
+        "status": j.status,
+        "done": j.done,
+        "total": j.total,
+        "chapters": j.chapters,
+        "file": j.file,
+        "size": j.size,
+        "error": j.error,
+    }
 
 
 @app.get("/api/books/{book_id}/export/{name}")
@@ -1231,7 +1461,11 @@ def books_export_file(book_id: str, name: str):
         path = exporter.file_path(book_id, name)
     except exporter.ExportError as ex:
         raise HTTPException(404, str(ex))
-    return FileResponse(path, filename=path.name, media_type="audio/mp4" if path.suffix == ".m4b" else "application/zip")
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="audio/mp4" if path.suffix == ".m4b" else "application/zip",
+    )
 
 
 if __name__ == "__main__":

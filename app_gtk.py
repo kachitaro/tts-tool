@@ -13,7 +13,9 @@ import signal
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 INSTALL_HINT = (
@@ -35,12 +37,26 @@ def ensure_gi() -> None:
     except ImportError:
         pass
     v = f"{sys.version_info.major}.{sys.version_info.minor}"
-    cands = ["/usr/lib/python3/dist-packages", f"/usr/lib/python{v}/site-packages", f"/usr/lib64/python{v}/site-packages", f"/usr/lib/python{v}/dist-packages"]
+    cands = [
+        "/usr/lib/python3/dist-packages",
+        f"/usr/lib/python{v}/site-packages",
+        f"/usr/lib64/python{v}/site-packages",
+        f"/usr/lib/python{v}/dist-packages",
+    ]
     try:  # hỏi python hệ thống nó cài gi ở đâu (mọi bản phân phối)
-        out = subprocess.run(["/usr/bin/python3", "-c", "import gi,os;print(os.path.dirname(os.path.dirname(gi.__file__)))"], capture_output=True, text=True, timeout=15).stdout.strip()
+        out = subprocess.run(
+            [
+                "/usr/bin/python3",
+                "-c",
+                "import gi,os;print(os.path.dirname(os.path.dirname(gi.__file__)))",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        ).stdout.strip()
         if out:
             cands.append(out)
-    except (OSError, subprocess.SubprocessError):
+    except OSError, subprocess.SubprocessError:
         pass
     for d in dict.fromkeys(cands):
         if os.path.isdir(os.path.join(d, "gi")):
@@ -65,7 +81,7 @@ try:
     gi.require_version("WebKit2", "4.1")
 except ValueError:
     gi.require_version("WebKit2", "4.0")
-from gi.repository import Gdk, Gio, GLib, GdkPixbuf, Gtk, WebKit2  # noqa: E402
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, WebKit2  # noqa: E402
 
 APPINDICATOR = None
 for _ns in ("AyatanaAppIndicator3", "AppIndicator3"):
@@ -73,7 +89,7 @@ for _ns in ("AyatanaAppIndicator3", "AppIndicator3"):
         gi.require_version(_ns, "0.1")
         APPINDICATOR = importlib.import_module("gi.repository." + _ns)
         break
-    except (ValueError, ImportError):
+    except ValueError, ImportError:
         continue
 
 
@@ -82,13 +98,13 @@ def on_main(fn, *args) -> None:
     GLib.idle_add(lambda: (fn(*args), False)[1])
 
 
-def call_main(fn, timeout: float = 10):
+def call_main(fn: Callable[[], Any], timeout: float = 10) -> Any:
     """Chạy fn ở luồng giao diện và chờ kết quả (gọi từ luồng khác; ở chính luồng giao diện thì gọi thẳng, tránh tự chờ mình)."""
     if threading.current_thread() is threading.main_thread():
         return fn()
     done, box = threading.Event(), {}
 
-    def run():
+    def run() -> bool:
         try:
             box["v"] = fn()
         except BaseException as ex:  # noqa: BLE001
@@ -108,7 +124,7 @@ def set_app_identity(prgname: str, name: str) -> None:
     """Tên chương trình = app_id trên Wayland / WM_CLASS trên X11: khớp giao diện với giong-viet.desktop để có đúng biểu tượng."""
     GLib.set_prgname(prgname)
     GLib.set_application_name(name)
-    Gdk.set_program_class(prgname)   # WM_CLASS của X11 = tên này, khớp StartupWMClass trong .desktop
+    Gdk.set_program_class(prgname)  # WM_CLASS của X11 = tên này, khớp StartupWMClass trong .desktop
 
 
 def is_wayland() -> bool:
@@ -142,20 +158,22 @@ def svg_ok(path: str) -> bool:
 
 
 # ───────────── cửa sổ ─────────────
-def view(win):
+def view(win: Any) -> Any:
     from webview.platforms.gtk import BrowserView
 
     return BrowserView.instances[win.uid]
 
 
-def wait_view(win, timeout: float = 30):
+def wait_view(win: Any, timeout: float = 30) -> Any:
     import time
 
     t = time.time()
     while time.time() - t < timeout:
         try:
             bv = view(win)
-            if getattr(bv, "webview", None) is not None:   # BrowserView vào danh sách sớm, webview được gán sau
+            if (
+                getattr(bv, "webview", None) is not None
+            ):  # BrowserView vào danh sách sớm, webview được gán sau
                 return bv
         except KeyError:
             pass
@@ -163,7 +181,11 @@ def wait_view(win, timeout: float = 30):
     raise TimeoutError("không tạo được cửa sổ")
 
 
-_MENU_KEEP = {getattr(WebKit2.ContextMenuAction, n) for n in ("CUT", "COPY", "PASTE", "DELETE", "SELECT_ALL") if hasattr(WebKit2.ContextMenuAction, n)}
+_MENU_KEEP = {
+    getattr(WebKit2.ContextMenuAction, n)
+    for n in ("CUT", "COPY", "PASTE", "DELETE", "SELECT_ALL")
+    if hasattr(WebKit2.ContextMenuAction, n)
+}
 
 
 def attach(win, *, debug: bool, on_uris) -> None:
@@ -175,7 +197,7 @@ def attach(win, *, debug: bool, on_uris) -> None:
     bv = wait_view(win)
     wv = bv.webview
 
-    def on_permission(_wv, req):
+    def on_permission(_wv: Any, req: Any) -> bool:
         if isinstance(req, WebKit2.UserMediaPermissionRequest):
             if req.get_property("is-for-video-device"):
                 req.deny()
@@ -185,7 +207,7 @@ def attach(win, *, debug: bool, on_uris) -> None:
         req.deny()
         return True
 
-    def on_context_menu(_wv, menu, _event, hit):
+    def on_context_menu(_wv: Any, menu: Any, _event: Any, hit: Any) -> bool:
         if debug:
             return False
         if not (hit.context_is_editable() or hit.context_is_selection()):
@@ -195,12 +217,16 @@ def attach(win, *, debug: bool, on_uris) -> None:
                 menu.remove(item)
         return False
 
-    def on_drag(_w, _ctx, _x, _y, data, _info, _time):
-        uris = data.get_uris() or [ln.strip() for ln in (data.get_text() or "").splitlines() if ln.strip().startswith("file://")]
+    def on_drag(_w: Any, _ctx: Any, _x: int, _y: int, data: Any, _info: int, _time: int) -> None:
+        uris = data.get_uris() or [
+            ln.strip()
+            for ln in (data.get_text() or "").splitlines()
+            if ln.strip().startswith("file://")
+        ]
         if uris:
             on_uris(uris)
 
-    def setup():
+    def setup() -> None:
         wv.connect("permission-request", on_permission)
         wv.connect("context-menu", on_context_menu)
         wv.connect("drag-data-received", on_drag)
@@ -224,7 +250,7 @@ def set_zoom(win, z: float) -> None:
 
 
 def geometry(win) -> dict:
-    def get():
+    def get() -> Any:
         w = win.native
         x, y = w.get_position()
         width, height = w.get_size()
@@ -235,10 +261,13 @@ def geometry(win) -> dict:
 
 def is_shown(win) -> bool:
     """Cửa sổ đang hiện trên màn hình (không ẩn, không thu nhỏ)?"""
-    def get():
+
+    def get() -> Any:
         w = win.native
         gw = w.get_window()
-        return bool(w.get_visible() and gw is not None and not (gw.get_state() & Gdk.WindowState.ICONIFIED))
+        return bool(
+            w.get_visible() and gw is not None and not (gw.get_state() & Gdk.WindowState.ICONIFIED)
+        )
 
     try:
         return call_main(get)
@@ -247,7 +276,7 @@ def is_shown(win) -> bool:
 
 
 def present(win, startup_id: str | None = None) -> None:
-    def go():
+    def go() -> None:
         w = win.native
         if startup_id:
             try:
@@ -263,7 +292,9 @@ def present(win, startup_id: str | None = None) -> None:
 
 def handle_signals(callback) -> None:
     for s in (signal.SIGINT, signal.SIGTERM):
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, s, lambda sig=s: (callback(signal.Signals(sig).name), True)[1])
+        GLib.unix_signal_add(
+            GLib.PRIORITY_DEFAULT, s, lambda sig=s: (callback(signal.Signals(sig).name), True)[1]
+        )
 
 
 # ───────────── khay hệ thống ─────────────
@@ -274,8 +305,17 @@ def tray_available() -> bool:
         return False
     try:
         conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-        r = conn.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "NameHasOwner",
-                           GLib.Variant("(s)", ("org.kde.StatusNotifierWatcher",)), GLib.VariantType("(b)"), Gio.DBusCallFlags.NONE, 2000, None)
+        r = conn.call_sync(
+            "org.freedesktop.DBus",
+            "/org/freedesktop/DBus",
+            "org.freedesktop.DBus",
+            "NameHasOwner",
+            GLib.Variant("(s)", ("org.kde.StatusNotifierWatcher",)),
+            GLib.VariantType("(b)"),
+            Gio.DBusCallFlags.NONE,
+            2000,
+            None,
+        )
         return bool(r.unpack()[0])
     except GLib.Error:
         return False
@@ -284,18 +324,30 @@ def tray_available() -> bool:
 class Tray:
     """Biểu tượng khay: [trạng thái] · Mở · Tạm dừng / Tiếp tục · Thoát. Gọi mọi hàm từ luồng bất kỳ."""
 
-    def __init__(self, icon_dir: str, icon_name: str, on_open, on_toggle, on_quit):
+    def __init__(
+        self,
+        icon_dir: str,
+        icon_name: str,
+        on_open: Callable[[], Any],
+        on_toggle: Callable[[], Any],
+        on_quit: Callable[[], Any],
+    ) -> None:
         self._cb = (on_open, on_toggle, on_quit)
         self._icon = (icon_dir, icon_name)
         self._ind = None
         self._items: dict = {}
 
-    def _build(self):
-        ind = APPINDICATOR.Indicator.new_with_path("giong-viet", self._icon[1], APPINDICATOR.IndicatorCategory.APPLICATION_STATUS, self._icon[0])
+    def _build(self) -> None:
+        ind = APPINDICATOR.Indicator.new_with_path(
+            "giong-viet",
+            self._icon[1],
+            APPINDICATOR.IndicatorCategory.APPLICATION_STATUS,
+            self._icon[0],
+        )
         ind.set_title("Giọng Việt")
         menu = Gtk.Menu()
 
-        def item(label, cb=None, sensitive=True):
+        def item(label: str, cb: Callable[[], Any] | None = None, sensitive: bool = True) -> Any:
             it = Gtk.MenuItem(label=label)
             it.set_sensitive(sensitive)
             if cb:
@@ -315,7 +367,7 @@ class Tray:
         self._ind = ind
 
     def show(self) -> None:
-        def go():
+        def go() -> None:
             if self._ind is None:
                 self._build()
             self._ind.set_status(APPINDICATOR.IndicatorStatus.ACTIVE)
@@ -326,7 +378,7 @@ class Tray:
         on_main(lambda: self._ind and self._ind.set_status(APPINDICATOR.IndicatorStatus.PASSIVE))
 
     def update(self, status: str, toggle_label: str | None) -> None:
-        def go():
+        def go() -> None:
             if self._ind is None:
                 return
             self._items["status"].set_label(status)

@@ -1,0 +1,2 @@
+# Công cụ dev (không cần để chạy tool). Cài: .venv/bin/python -m pip install -r requirements-dev.txt
+ruff==0.17.4

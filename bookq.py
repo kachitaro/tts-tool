@@ -35,19 +35,19 @@ import soundfile as sf
 
 import books
 import dialogue
-import library
 import lexicon
-import settings
+import library
 import narrate
+import settings
 from engines.base import BACKGROUND
 from engines.vieneu import default_precision
 
 log = logging.getLogger(__name__)
 STATE_PATH = library.DATA / "queue.json"
 BENCH_PATH = library.DATA / "bench.json"
-RATE_WINDOW = 20          # số đoạn gần nhất dùng để đo tốc độ thực tế
+RATE_WINDOW = 20  # số đoạn gần nhất dùng để đo tốc độ thực tế
 MAX_CONSECUTIVE_ERRORS = 3
-TRIAL_TTL = 900           # giây giữ kết quả "Đọc thử"
+TRIAL_TTL = 900  # giây giữ kết quả "Đọc thử"
 INHIBIT_WHY = "Giọng Việt đang tạo sách nói"
 
 
@@ -62,7 +62,7 @@ class Trial:
     n: int
     units: list
     speed: int
-    status: str = "queued"   # queued | running | done | error
+    status: str = "queued"  # queued | running | done | error
     done: int = 0
     total: int = 0
     seconds: float = 0.0
@@ -93,7 +93,7 @@ def bench_rate(engine_id: str) -> tuple[float, str] | None:
         data = json.loads(BENCH_PATH.read_text(encoding="utf-8"))
         r = data["vieneu"][current_precision()]
         return float(r["chars_per_sec"]), f"bench {current_precision()}"
-    except (OSError, ValueError, KeyError, TypeError):
+    except OSError, ValueError, KeyError, TypeError:
         return None
 
 
@@ -102,21 +102,43 @@ def signature(book: dict, narr: tuple, dlg: tuple | None, glex: list[dict]) -> s
     sau nằm trong line_key qua cache_tag): đổi thì audio cũ lỗi thời."""
     speed = book["speed"]
     pp, tp = books.pauses(book)
-    parts = {"n": dialogue.line_key(narr[0], narr[1], "", speed), "d": dialogue.line_key(dlg[0], dlg[1], "", speed) if dlg else None,
-             "norm": bool(book["normalize"]), "lex": book.get("lexicon") or [], "glex": glex,
-             "title": bool(book.get("read_title", True)), "pp": pp, "tp": tp}
-    return hashlib.sha256(json.dumps(parts, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
+    parts = {
+        "n": dialogue.line_key(narr[0], narr[1], "", speed),
+        "d": dialogue.line_key(dlg[0], dlg[1], "", speed) if dlg else None,
+        "norm": bool(book["normalize"]),
+        "lex": book.get("lexicon") or [],
+        "glex": glex,
+        "title": bool(book.get("read_title", True)),
+        "pp": pp,
+        "tp": tp,
+    }
+    return hashlib.sha256(
+        json.dumps(parts, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()[:16]
 
 
 class BookQueue:
     def __init__(self) -> None:
-        self.s: dict = {"paused": False, "items": [], "inhibit_sleep": True, "rate": [],
-                        "finish": {"seq": 0, "at": 0, "done": 0, "errors": 0, "book": "", "title": "", "trial": False}}
+        self.s: dict = {
+            "paused": False,
+            "items": [],
+            "inhibit_sleep": True,
+            "rate": [],
+            "finish": {
+                "seq": 0,
+                "at": 0,
+                "done": 0,
+                "errors": 0,
+                "book": "",
+                "title": "",
+                "trial": False,
+            },
+        }
         self.running: dict | None = None
         self.trials: dict[str, Trial] = {}
-        self.resolve = None          # callable(book) -> (narr, dlg); server cung cấp
-        self.note = ""               # thông báo cho UI (vd. tạm dừng vì lỗi liên tiếp)
-        self.inhibit_state = "off"   # off | on | unavailable | error
+        self.resolve = None  # callable(book) -> (narr, dlg); server cung cấp
+        self.note = ""  # thông báo cho UI (vd. tạm dừng vì lỗi liên tiếp)
+        self.inhibit_state = "off"  # off | on | unavailable | error
         self._wake: asyncio.Event | None = None
         self._task: asyncio.Task | None = None
         self._shutdown = False
@@ -131,7 +153,7 @@ class BookQueue:
         try:
             saved = json.loads(STATE_PATH.read_text(encoding="utf-8"))
             self.s.update({k: saved[k] for k in self.s if k in saved})
-        except (OSError, ValueError):
+        except OSError, ValueError:
             pass
         items, seen = [], set()
         for it in self.s["items"]:
@@ -140,12 +162,14 @@ class BookQueue:
                 continue
             try:
                 meta, _ = books.chapter_text(*key)
-            except (books.NotFound, books.BookError, OSError, ValueError):
+            except books.NotFound, books.BookError, OSError, ValueError:
                 continue
             seen.add(key)
             items.append({"book": key[0], "n": key[1], "force": bool(it.get("force"))})
             if meta.get("status") != "queued":
-                books.update_chapter(key[0], key[1], status="queued")  # đang "running" khi server chết → làm lại từ đoạn dở
+                books.update_chapter(
+                    key[0], key[1], status="queued"
+                )  # đang "running" khi server chết → làm lại từ đoạn dở
         self.s["items"] = items
         self.save()
 
@@ -170,15 +194,20 @@ class BookQueue:
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout)
-            except asyncio.TimeoutError:
-                log.warning("Hàng đợi sách nói chưa dừng sau %ss; chương đang dở sẽ làm lại khi khởi động.", timeout)
+            except TimeoutError:
+                log.warning(
+                    "Hàng đợi sách nói chưa dừng sau %ss; chương đang dở sẽ làm lại khi khởi động.",
+                    timeout,
+                )
         self._stop_inhibit()
 
     def _poke(self) -> None:
         if self._wake:
             self._wake.set()
 
-    def enqueue(self, book_id: str, ns: list[int], regenerate: bool = False, start: bool = True) -> dict:
+    def enqueue(
+        self, book_id: str, ns: list[int], regenerate: bool = False, start: bool = True
+    ) -> dict:
         """Xếp chương vào cuối hàng đợi. Bỏ qua chương đã xong (trừ regenerate: xoá audio cũ, dựng lại bằng model, không dùng cache),
         chương đang chạy và chương đã nằm trong hàng đợi (regenerate thì đánh dấu dựng lại)."""
         books.get(book_id)
@@ -204,7 +233,9 @@ class BookQueue:
             else:
                 if regenerate:
                     self._reset_chapter(book_id, n)
-                books.update_chapter(book_id, n, status="queued", error=None)  # chương lỗi/dở: giữ các đoạn đã dựng để chạy tiếp
+                books.update_chapter(
+                    book_id, n, status="queued", error=None
+                )  # chương lỗi/dở: giữ các đoạn đã dựng để chạy tiếp
                 self.s["items"].append({"book": book_id, "n": n, "force": bool(regenerate)})
                 added.append(n)
         if start:
@@ -217,8 +248,18 @@ class BookQueue:
     def _reset_chapter(self, book_id: str, n: int) -> None:
         books.chapter_audio(book_id, n).unlink(missing_ok=True)
         shutil.rmtree(books.parts_dir(book_id, n), ignore_errors=True)
-        books.update_chapter(book_id, n, status="pending", segments=None, audio_seconds=None, gen_seconds=None, sig=None,
-                             error=None, finished_at=None, exported=None)
+        books.update_chapter(
+            book_id,
+            n,
+            status="pending",
+            segments=None,
+            audio_seconds=None,
+            gen_seconds=None,
+            sig=None,
+            error=None,
+            finished_at=None,
+            exported=None,
+        )
 
     def pause(self) -> None:
         self.s["paused"] = True
@@ -243,7 +284,7 @@ class BookQueue:
                 continue
             try:
                 books.update_chapter(it["book"], it["n"], status="pending")
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 pass
             dropped += 1
         self.s["items"] = keep
@@ -256,7 +297,11 @@ class BookQueue:
         idx = next((k for k, it in enumerate(items) if (it["book"], it["n"]) == (book_id, n)), None)
         if idx is None:
             return False
-        first_is_running = bool(self.running and items and (items[0]["book"], items[0]["n"]) == (self.running["book"], self.running["n"]))
+        first_is_running = bool(
+            self.running
+            and items
+            and (items[0]["book"], items[0]["n"]) == (self.running["book"], self.running["n"])
+        )
         target = 1 if first_is_running else 0
         if idx > target:
             items.insert(target, items.pop(idx))
@@ -264,7 +309,11 @@ class BookQueue:
         return True
 
     def forget_book(self, book_id: str) -> None:
-        self.s["items"] = [i for i in self.s["items"] if i["book"] != book_id or (self.running and self.running["book"] == book_id)]
+        self.s["items"] = [
+            i
+            for i in self.s["items"]
+            if i["book"] != book_id or (self.running and self.running["book"] == book_id)
+        ]
         if self.running and self.running["book"] == book_id:
             self._cancel_current = True
         for t in list(self.trials.values()):
@@ -283,7 +332,9 @@ class BookQueue:
     # ───────────── Đọc thử (ưu tiên cao nhất) ─────────────
     def submit_trial(self, book: dict, n: int, text: str, narr: tuple, dlg: tuple | None) -> Trial:
         self._purge_trials()
-        us = narrate.units(text, narr, dlg, book["normalize"], book.get("lexicon"), lexicon.load_global())
+        us = narrate.units(
+            text, narr, dlg, book["normalize"], book.get("lexicon"), lexicon.load_global()
+        )
         if not us:
             raise QueueError("Đoạn văn không có gì để đọc.")
         t = Trial(uuid.uuid4().hex[:12], book["id"], n, us, book["speed"], total=len(us))
@@ -342,26 +393,36 @@ class BookQueue:
         self._stop_inhibit()
         if drained and (self._session["done"] or self._session["errors"]):
             f = self.s["finish"]
-            f.update(seq=f["seq"] + 1, at=time.time(), done=self._session["done"], errors=self._session["errors"],
-                     book=self._session["book"], title=self._session["title"], trial=self._mark_trial_done(self._session["book"]))
+            f.update(
+                seq=f["seq"] + 1,
+                at=time.time(),
+                done=self._session["done"],
+                errors=self._session["errors"],
+                book=self._session["book"],
+                title=self._session["title"],
+                trial=self._mark_trial_done(self._session["book"]),
+            )
             self.save()
             self._notify(f)
             self._session = {"done": 0, "errors": 0, "book": "", "title": ""}
 
     @staticmethod
     def _mark_trial_done(book_id: str) -> bool:
-        """"Tạo thử N chương" xong khi đủ N chương đã có audio: ghi done_at vào book.json (banner "Tạo tiếp" đọc từ đó)."""
+        """ "Tạo thử N chương" xong khi đủ N chương đã có audio: ghi done_at vào book.json (banner "Tạo tiếp" đọc từ đó)."""
         try:
             b = books.get(book_id)
             t = b.get("trial")
             if not t or t.get("done_at"):
                 return False
-            if sum(c.get("status") in ("done", "exported") for c in books.list_chapters(book_id)) < t["limit"]:
+            if (
+                sum(c.get("status") in ("done", "exported") for c in books.list_chapters(book_id))
+                < t["limit"]
+            ):
                 return False
             t["done_at"] = time.time()
             books.save(b)
             return True
-        except (books.NotFound, OSError, KeyError):
+        except books.NotFound, OSError, KeyError:
             return False
 
     def _notify(self, f: dict) -> None:
@@ -370,10 +431,26 @@ class BookQueue:
         if not _sh.which("notify-send") or not settings.load()["notify"]:
             return
         trial = f.get("trial")
-        body = f"{f['title'] or 'Sách nói'}: xong {f['done']} chương" + (f", {f['errors']} lỗi" if f["errors"] else "") + (". Nghe thử rồi bấm Tạo tiếp." if trial else "")
+        body = (
+            f"{f['title'] or 'Sách nói'}: xong {f['done']} chương"
+            + (f", {f['errors']} lỗi" if f["errors"] else "")
+            + (". Nghe thử rồi bấm Tạo tiếp." if trial else "")
+        )
         try:
-            subprocess.Popen(["notify-send", "-a", "Giọng Việt", "Giọng Việt — đã xong chương thử" if trial else "Giọng Việt — tạo sách nói xong", body],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            subprocess.Popen(
+                [
+                    "notify-send",
+                    "-a",
+                    "Giọng Việt",
+                    "Giọng Việt — đã xong chương thử"
+                    if trial
+                    else "Giọng Việt — tạo sách nói xong",
+                    body,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
         except OSError as ex:
             log.info("notify-send lỗi: %s", ex)
 
@@ -388,7 +465,9 @@ class BookQueue:
         return ""
 
     def _pop(self, item: dict) -> None:
-        self.s["items"] = [i for i in self.s["items"] if not (i["book"] == item["book"] and i["n"] == item["n"])]
+        self.s["items"] = [
+            i for i in self.s["items"] if not (i["book"] == item["book"] and i["n"] == item["n"])
+        ]
         self.save()
 
     async def _process(self, item: dict) -> None:
@@ -397,14 +476,27 @@ class BookQueue:
         try:
             book = books.get(book_id)
             meta, body = books.chapter_text(book_id, n)
-        except (books.NotFound, books.BookError, OSError, ValueError):
+        except books.NotFound, books.BookError, OSError, ValueError:
             self._pop(item)
             return
-        self.running = {"book": book_id, "n": n, "title": meta.get("title", ""), "seg_done": 0, "seg_total": 0, "book_title": book["title"]}
+        self.running = {
+            "book": book_id,
+            "n": n,
+            "title": meta.get("title", ""),
+            "seg_done": 0,
+            "seg_total": 0,
+            "book_title": book["title"],
+        }
         try:
             outcome = await self._generate(book, meta, body, item)
         except Exception as ex:  # noqa: BLE001
-            log.warning("Chương %s/%s lỗi: %s", book_id, n, ex, exc_info=not isinstance(ex, (RuntimeError, ValueError, OSError)))
+            log.warning(
+                "Chương %s/%s lỗi: %s",
+                book_id,
+                n,
+                ex,
+                exc_info=not isinstance(ex, (RuntimeError, ValueError, OSError)),
+            )
             books.update_chapter(book_id, n, status="error", error=_err_text(ex)[:500])
             self._pop(item)
             self._session["errors"] += 1
@@ -438,20 +530,32 @@ class BookQueue:
         texts = [narrate.segment_text(segs, k) for k in range(len(segs))]
         pdir = books.parts_dir(book_id, n)
         pdir.mkdir(parents=True, exist_ok=True)
-        names = [f"{k:03d}_{hashlib.sha256((t + sig).encode()).hexdigest()[:10]}.flac" for k, t in enumerate(texts)]
+        names = [
+            f"{k:03d}_{hashlib.sha256((t + sig).encode()).hexdigest()[:10]}.flac"
+            for k, t in enumerate(texts)
+        ]
         for f in pdir.iterdir():  # đoạn của cấu hình cũ / file tạm dở dang
             if f.name not in names:
                 f.unlink(missing_ok=True)
-        books.update_chapter(book_id, n, status="running", segments={"done": 0, "total": len(segs)}, error=None, sig=sig)
+        books.update_chapter(
+            book_id,
+            n,
+            status="running",
+            segments={"done": 0, "total": len(segs)},
+            error=None,
+            sig=sig,
+        )
         self.running.update(seg_total=len(segs))
         gen_seconds = 0.0
-        for k, (seg, name) in enumerate(zip(texts, names)):
+        for k, (seg, name) in enumerate(zip(texts, names)):  # noqa: B905  (độ dài hai danh sách luôn bằng nhau; strict= sẽ đổi hành vi)
             path = pdir / name
             if not path.is_file():
-                if (why := self._interrupted()):
+                if why := self._interrupted():
                     return why
                 t0 = time.perf_counter()
-                wav = await self._render_segment(seg, book, narr, dlg, glex, bool(item.get("force")))
+                wav = await self._render_segment(
+                    seg, book, narr, dlg, glex, bool(item.get("force"))
+                )
                 if wav is None:
                     return "shutdown"
                 await anyio.to_thread.run_sync(_flac, path, wav)
@@ -460,23 +564,35 @@ class BookQueue:
                 self._record_rate(len(seg), took)
             self.running.update(seg_done=k + 1)
             books.update_chapter(book_id, n, segments={"done": k + 1, "total": len(segs)})
-        audio = await anyio.to_thread.run_sync(self._assemble, book_id, n, [pdir / nm for nm in names])
-        books.update_chapter(book_id, n, status="done", audio_seconds=round(audio, 1), gen_seconds=round(gen_seconds, 1),
-                             finished_at=time.time(), error=None)
+        audio = await anyio.to_thread.run_sync(
+            self._assemble, book_id, n, [pdir / nm for nm in names]
+        )
+        books.update_chapter(
+            book_id,
+            n,
+            status="done",
+            audio_seconds=round(audio, 1),
+            gen_seconds=round(gen_seconds, 1),
+            finished_at=time.time(),
+            error=None,
+        )
         self._pop(item)
         return "done"
 
-    async def _render_segment(self, seg: str, book: dict, narr: tuple, dlg: tuple | None, glex: list[dict],
-                              force: bool) -> np.ndarray | None:
+    async def _render_segment(
+        self, seg: str, book: dict, narr: tuple, dlg: tuple | None, glex: list[dict], force: bool
+    ) -> np.ndarray | None:
         """None nếu server đang tắt (bỏ nốt đoạn dở, sẽ dựng lại khi khởi động)."""
         us = narrate.units(seg, narr, dlg, book["normalize"], book.get("lexicon"), glex)
         parts, warnings = [], []
         for u in us:
             parts.append(await narrate.render_unit(u, book["speed"], warnings, force))
-            await self._serve_trials()   # "Đọc thử" chen vào giữa hai mảnh
+            await self._serve_trials()  # "Đọc thử" chen vào giữa hai mảnh
             if self._shutdown:
                 return None
-        return np.concatenate(parts) if parts else np.zeros(int(0.4 * dialogue.SR), dtype=np.float32)
+        return (
+            np.concatenate(parts) if parts else np.zeros(int(0.4 * dialogue.SR), dtype=np.float32)
+        )
 
     @staticmethod
     def _assemble(book_id: str, n: int, files: list) -> float:
@@ -501,10 +617,20 @@ class BookQueue:
             log.info("Không có systemd-inhibit: bỏ qua chống ngủ máy.")
             return
         # tiến trình con tự thoát khi server chết (kể cả bị kill -9) nên khoá không bị kẹt
-        cmd = ["systemd-inhibit", "--what=sleep:idle", "--who=Giọng Việt", f"--why={INHIBIT_WHY}", "--mode=block",
-               "sh", "-c", f"while kill -0 {os.getpid()} 2>/dev/null; do sleep 5; done"]
+        cmd = [
+            "systemd-inhibit",
+            "--what=sleep:idle",
+            "--who=Giọng Việt",
+            f"--why={INHIBIT_WHY}",
+            "--mode=block",
+            "sh",
+            "-c",
+            f"while kill -0 {os.getpid()} 2>/dev/null; do sleep 5; done",
+        ]
         try:
-            self._inhibit = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
+            self._inhibit = subprocess.Popen(
+                cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True
+            )
             self.inhibit_state = "on"
         except OSError as ex:
             log.warning("systemd-inhibit không chạy được (%s): bỏ qua chống ngủ máy.", ex)
@@ -514,7 +640,11 @@ class BookQueue:
         """systemd-inhibit thoát ngay (vd. không có quyền với logind) thì ghi log một lần và báo 'error'."""
         if self._inhibit and self._inhibit.poll() is not None:
             err = (self._inhibit.stderr.read() or b"").decode(errors="replace").strip()
-            log.warning("systemd-inhibit thoát sớm (mã %s): %s — bỏ qua chống ngủ máy.", self._inhibit.returncode, err)
+            log.warning(
+                "systemd-inhibit thoát sớm (mã %s): %s — bỏ qua chống ngủ máy.",
+                self._inhibit.returncode,
+                err,
+            )
             self._inhibit, self.inhibit_state = None, "error"
 
     def _stop_inhibit(self) -> None:
@@ -522,7 +652,7 @@ class BookQueue:
             try:
                 os.killpg(self._inhibit.pid, signal.SIGTERM)
                 self._inhibit.wait(timeout=3)
-            except (OSError, subprocess.TimeoutExpired):
+            except OSError, subprocess.TimeoutExpired:
                 pass
         self._inhibit = None
         if self.inhibit_state == "on":
@@ -540,10 +670,26 @@ class BookQueue:
     def status(self) -> dict:
         running = dict(self.running) if self.running else None
         self._check_inhibit()
-        state = ("pausing" if self.s["paused"] else "running") if running else "paused" if self.s["paused"] else "running" if self.s["items"] else "idle"
-        return {"state": state, "paused": self.s["paused"], "running": running, "queued": len(self.s["items"]),
-                "inhibit_sleep": self.s["inhibit_sleep"], "inhibit": self.inhibit_state, "note": self.note,
-                "finish": self.s["finish"], "precision": current_precision()}
+        state = (
+            ("pausing" if self.s["paused"] else "running")
+            if running
+            else "paused"
+            if self.s["paused"]
+            else "running"
+            if self.s["items"]
+            else "idle"
+        )
+        return {
+            "state": state,
+            "paused": self.s["paused"],
+            "running": running,
+            "queued": len(self.s["items"]),
+            "inhibit_sleep": self.s["inhibit_sleep"],
+            "inhibit": self.inhibit_state,
+            "note": self.note,
+            "finish": self.s["finish"],
+            "precision": current_precision(),
+        }
 
     def book_status(self, book_id: str, engine_id: str = "vieneu") -> dict:
         chs = books.list_chapters(book_id)
@@ -562,9 +708,16 @@ class BookQueue:
         r = self.rate(engine_id)
         est = remaining_chars / r[0] if r and r[0] > 0 else None
         out = self.status()
-        out.update(counts=counts, chapters=len(chs), remaining=remaining_n, remaining_chars=round(remaining_chars),
-                   estimate_seconds=None if est is None else round(est), rate_cps=None if r is None else round(r[0], 2),
-                   rate_source=None if r is None else r[1], queued_book=sum(1 for i in self.s["items"] if i["book"] == book_id))
+        out.update(
+            counts=counts,
+            chapters=len(chs),
+            remaining=remaining_n,
+            remaining_chars=round(remaining_chars),
+            estimate_seconds=None if est is None else round(est),
+            rate_cps=None if r is None else round(r[0], 2),
+            rate_source=None if r is None else r[1],
+            queued_book=sum(1 for i in self.s["items"] if i["book"] == book_id),
+        )
         return out
 
 

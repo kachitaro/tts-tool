@@ -23,7 +23,6 @@ import http.server
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -36,7 +35,11 @@ ap.add_argument("--url", help="nạp trang này (vd. tool thật) thay cho trang
 ap.add_argument("--idle", type=float, default=8, help="giây chờ trước khi đo RAM")
 ap.add_argument("--screenshot", help="chụp màn hình Xvfb ra file này")
 ap.add_argument("--no-dnd", action="store_true")
-ap.add_argument("--no-mic-patch", action="store_true", help="GTK: không tự cho phép micro (để thấy mặc định bị từ chối)")
+ap.add_argument(
+    "--no-mic-patch",
+    action="store_true",
+    help="GTK: không tự cho phép micro (để thấy mặc định bị từ chối)",
+)
 args = ap.parse_args()
 
 PROBE_ID = uuid.uuid4().hex
@@ -50,12 +53,36 @@ import webview  # noqa: E402
 
 WORK = Path(tempfile.mkdtemp(prefix="webview_probe_"))
 REPORT: dict = {"backend": args.backend}
-GOT = {"page": threading.Event(), "drop": threading.Event(), "dragenter": threading.Event(), "dropEvent": threading.Event()}
+GOT = {
+    "page": threading.Event(),
+    "drop": threading.Event(),
+    "dragenter": threading.Event(),
+    "dropEvent": threading.Event(),
+}
 
 
 def make_assets() -> None:
     for ext, codec in (("wav", "pcm_s16le"), ("flac", "flac"), ("mp3", "libmp3lame")):
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-ar", "48000", "-ac", "1", "-c:a", codec, str(WORK / f"t.{ext}")], check=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=2",
+                "-ar",
+                "48000",
+                "-ac",
+                "1",
+                "-c:a",
+                codec,
+                str(WORK / f"t.{ext}"),
+            ],
+            check=True,
+        )
     (WORK / "drop-me.txt").write_text("xin chào " * 100, encoding="utf-8")
 
 
@@ -154,7 +181,7 @@ def descendants(root: int) -> set[int]:
         if p.name.isdigit():
             try:
                 ppid = int((p / "stat").read_text().rsplit(")", 1)[1].split()[1])
-            except (OSError, ValueError, IndexError):
+            except OSError, ValueError, IndexError:
                 continue
             kids.setdefault(ppid, []).append(int(p.name))
     out, todo = {root}, [root]
@@ -180,8 +207,12 @@ def tree_pss() -> dict:
                 if PROBE_ID.encode() not in (p / "environ").read_bytes():
                     continue
             name = (p / "comm").read_text().strip()
-            pss = sum(int(line.split()[1]) for line in (p / "smaps_rollup").read_text().splitlines() if line.startswith("Pss:"))
-        except (OSError, ValueError):
+            pss = sum(
+                int(line.split()[1])
+                for line in (p / "smaps_rollup").read_text().splitlines()
+                if line.startswith("Pss:")
+            )
+        except OSError, ValueError:
             continue
         out[f"{name}:{p.name}" + ("*" if pid == me else "")] = pss
         total += pss
@@ -193,23 +224,41 @@ def do_drag(win):
     from Xlib import X, display
     from Xlib.ext import xtest
 
-    src = subprocess.Popen(["/usr/bin/python3", str(Path(__file__).with_name("webview_dnd_source.py")), str(WORK / "drop-me.txt")], stdout=subprocess.PIPE, text=True)
+    src = subprocess.Popen(
+        [
+            "/usr/bin/python3",
+            str(Path(__file__).with_name("webview_dnd_source.py")),
+            str(WORK / "drop-me.txt"),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
     assert src.stdout.readline().strip() == "ready"
     d = display.Display()
     move = lambda x, y: (xtest.fake_input(d, X.MotionNotify, x=x, y=y), d.sync())  # noqa: E731
     time.sleep(0.5)
-    move(110, 60); time.sleep(0.2)
-    xtest.fake_input(d, X.ButtonPress, 1); d.sync(); time.sleep(0.2)
-    tx, ty = 300 + 250 + (win.x or 0), 200 + 150 + (win.y or 0)   # tâm #zone (cửa sổ không có WM nên không viền)
+    move(110, 60)
+    time.sleep(0.2)
+    xtest.fake_input(d, X.ButtonPress, 1)
+    d.sync()
+    time.sleep(0.2)
+    tx, ty = (
+        300 + 250 + (win.x or 0),
+        200 + 150 + (win.y or 0),
+    )  # tâm #zone (cửa sổ không có WM nên không viền)
     sx, sy = 110, 60
     for i in range(1, 41):
-        move(int(sx + (tx - sx) * i / 40), int(sy + (ty - sy) * i / 40)); time.sleep(0.03)
+        move(int(sx + (tx - sx) * i / 40), int(sy + (ty - sy) * i / 40))
+        time.sleep(0.03)
     time.sleep(0.4)
     if args.screenshot:
         from PIL import ImageGrab
 
-        ImageGrab.grab(xdisplay=os.environ["DISPLAY"]).save(args.screenshot.replace(".png", "-drag.png"))
-    xtest.fake_input(d, X.ButtonRelease, 1); d.sync()
+        ImageGrab.grab(xdisplay=os.environ["DISPLAY"]).save(
+            args.screenshot.replace(".png", "-drag.png")
+        )
+    xtest.fake_input(d, X.ButtonRelease, 1)
+    d.sync()
     return src
 
 
@@ -249,7 +298,7 @@ def runner(win) -> None:
         REPORT["win"] = [win.x, win.y, win.width, win.height]
         REPORT["ram"] = tree_pss()
         if not args.no_dnd and not args.url:
-            src = do_drag(win)   # nguồn kéo phải còn sống cho tới khi trang nhận xong
+            src = do_drag(win)  # nguồn kéo phải còn sống cho tới khi trang nhận xong
             REPORT["drop_received"] = GOT["dropEvent"].wait(8)
             GOT["drop"].wait(3)
             src.terminate()
