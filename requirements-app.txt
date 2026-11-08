@@ -1,0 +1,2 @@
+# Chỉ cần cho app cửa sổ riêng (giong-viet). Cần thêm gói hệ thống: xem README, mục "App cửa sổ riêng".
+pywebview>=6

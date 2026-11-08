@@ -621,18 +621,22 @@ def t_settings_info() -> None:
 
 
 def t_settings_default_voice() -> None:
-    assert j(client.get(f"{B}/api/settings")) == {"default_voice": None}
+    assert j(client.get(f"{B}/api/settings")) == {"default_voice": None, "notify": True}
     vs = j(client.get(f"{B}/api/voices/vieneu"))
     pick = next(v for v in vs if v["id"] != "Hải Đăng" and v.get("usable", True))               # khác giọng mặc định của tool để thấy rõ tác dụng
     got = j(client.put(f"{B}/api/settings", json={"default_voice": {"engine": "vieneu", "voice": pick["id"]}}))
-    assert got == {"default_voice": {"engine": "vieneu", "voice": pick["id"]}} and j(client.get(f"{B}/api/settings")) == got
+    assert got == {"default_voice": {"engine": "vieneu", "voice": pick["id"]}, "notify": True} and j(client.get(f"{B}/api/settings")) == got
     d = j(client.post(f"{B}/api/books/import", files=[("files", ("s.txt", STORY.encode(), "text/plain"))], data={"title": "Giọng mặc định smoke"}))
     assert d["voice"] == {"engine": "vieneu", "voice": pick["id"]}, d["voice"]                      # truyện mới dùng giọng mặc định người dùng chọn
     j(client.delete(f"{B}/api/books/{d['id']}"))
     for bad in ({"engine": "khong-co", "voice": "x"}, {"engine": "vieneu", "voice": "Giọng không tồn tại"}, {"engine": "vieneu", "voice": "lib:khong-co"}, {"engine": "vieneu", "voice": ""}):
         assert client.put(f"{B}/api/settings", json={"default_voice": bad}).status_code in (400, 404), bad
     assert j(client.get(f"{B}/api/settings")) == got, "lưu sai không được làm mất lựa chọn cũ"
-    assert j(client.put(f"{B}/api/settings", json={"default_voice": None})) == {"default_voice": None}
+    assert j(client.put(f"{B}/api/settings", json={"default_voice": None})) == {"default_voice": None, "notify": True}
+    # notify: tắt/bật độc lập, không đụng giọng mặc định; PUT không gửi default_voice thì giữ nguyên
+    assert j(client.put(f"{B}/api/settings", json={"default_voice": {"engine": "vieneu", "voice": pick["id"]}, "notify": False})) == {"default_voice": {"engine": "vieneu", "voice": pick["id"]}, "notify": False}
+    assert j(client.put(f"{B}/api/settings", json={"notify": True})) == {"default_voice": {"engine": "vieneu", "voice": pick["id"]}, "notify": True}
+    assert j(client.put(f"{B}/api/settings", json={"default_voice": None})) == {"default_voice": None, "notify": True}
     d = j(client.post(f"{B}/api/books/import", files=[("files", ("s.txt", STORY.encode(), "text/plain"))], data={"title": "Giọng mặc định smoke 2"}))
     assert d["voice"] == {"engine": "vieneu", "voice": "Hải Đăng"}, d["voice"]                      # bỏ chọn → mặc định của tool
     j(client.delete(f"{B}/api/books/{d['id']}"))

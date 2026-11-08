@@ -217,6 +217,22 @@ $PY scripts/smoke_ui.py "$B" >"$WORK/ui.out" 2>&1
 while IFS= read -r l; do case "$l" in PASS*) ok "${l#PASS  }";; FAIL*) bad "${l#FAIL  }";; SKIP*) echo "$l";; esac; done <"$WORK/ui.out"
 grep -qE '^(PASS|FAIL|SKIP)  ' "$WORK/ui.out" || bad "smoke_ui.py không chạy được" "$(tail -3 "$WORK/ui.out" | tr '\n' ' ')"
 
+echo "== app cửa sổ riêng (pywebview + WebKitGTK): app.py --selftest (cửa sổ ẩn, dữ liệu tạm)"
+if ! $PY -c "import sys, webview; sys.path.insert(0, '.'); import app_gtk" >"$WORK/app_dep.out" 2>&1; then
+  echo "SKIP  app cửa sổ riêng: thiếu pywebview hoặc GTK/WebKitGTK ($(tail -1 "$WORK/app_dep.out" | cut -c1-90))"
+elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+  APP_RUN=("$PY" app.py --selftest)
+elif command -v xvfb-run >/dev/null; then
+  APP_RUN=(xvfb-run -a -s "-screen 0 1280x800x24" env GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1 "$PY" app.py --selftest)
+else
+  echo "SKIP  app cửa sổ riêng: không có màn hình (DISPLAY / WAYLAND_DISPLAY) và không có xvfb-run"
+fi
+if [ -n "${APP_RUN[*]:-}" ]; then
+  "${APP_RUN[@]}" >"$WORK/app.out" 2>&1
+  while IFS= read -r l; do case "$l" in PASS*) ok "${l#PASS  }";; FAIL*) bad "${l#FAIL  }";; SKIP*) echo "$l";; esac; done <"$WORK/app.out"
+  grep -qE '^(PASS|FAIL|SKIP)  ' "$WORK/app.out" || bad "app --selftest không chạy được" "$(tail -3 "$WORK/app.out" | tr '\n' ' ')"
+fi
+
 echo "== sách nói (nhập .txt/.epub, tách chương, làm sạch, ngăn cảnh → [nghỉ])"
 $PY scripts/smoke_books.py "$B" >"$WORK/books.out" 2>&1
 grep -E '^(PASS|FAIL)  ' "$WORK/books.out"
@@ -270,7 +286,7 @@ dialogue.prune_cache(limit=500)                       # k0 (job sống) vẫn n�
 assert any("vượt TTS_CACHE_MB" in m for m in records), records
 PYEOF
 
-check "các script thử (smoke_books, smoke_queue…) không để lại thư mục tạm trong /tmp" bash -c '! find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$1" \( -name "smoke_queue_*" -o -name "smoke_books_*" -o -name "measure_pauses_*" -o -name "perf_books_*" -o -name "lexicon_probe_*" -o -name "bench_vieneu_*" -o -name "smoke_ui_*" \) | grep -q .' _ "$WORK/stamp"
+check "các script thử (smoke_books, smoke_queue…) không để lại thư mục tạm trong /tmp" bash -c '! find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$1" \( -name "smoke_queue_*" -o -name "smoke_books_*" -o -name "measure_pauses_*" -o -name "perf_books_*" -o -name "lexicon_probe_*" -o -name "bench_vieneu_*" -o -name "smoke_ui_*" -o -name "gv_selftest_*" -o -name "gv_save_*" -o -name "gv_drop_*" \) | grep -q .' _ "$WORK/stamp"
 
 echo
 echo "Kết quả: $PASS PASS, $FAIL FAIL"

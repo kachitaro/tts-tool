@@ -178,14 +178,17 @@ def settings_info():
 
 
 class SettingsIn(BaseModel):
-    default_voice: dict | None = None   # {"engine", "voice"} hoặc null = bỏ chọn
+    default_voice: dict | None = None   # {"engine", "voice"} hoặc null = bỏ chọn (không gửi = giữ nguyên)
+    notify: bool | None = None          # báo khi tạo sách nói xong (thông báo desktop của server; giao diện web cũng theo)
 
 
 @app.put("/api/settings")
 async def settings_put(body: SettingsIn):
     """Lưu cài đặt chung. default_voice phải là giọng đang có và dùng được; null để bỏ chọn."""
     dv = body.default_voice
-    if dv is not None:
+    if "default_voice" not in body.model_fields_set:
+        dv = settings._KEEP
+    elif dv is not None:
         e = get_engine(str(dv.get("engine", "")))
         voice = str(dv.get("voice", ""))
         check_lib_voice(e, voice)
@@ -197,7 +200,7 @@ async def settings_put(body: SettingsIn):
             raise HTTPException(400, f"Không có giọng '{voice}'.")
         dv = {"engine": e.id, "voice": voice}
     try:
-        return settings.save(dv)
+        return settings.save(dv, body.notify)
     except settings.SettingsError as ex:
         raise HTTPException(400, str(ex))
 

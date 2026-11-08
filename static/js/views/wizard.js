@@ -12,6 +12,7 @@ import { askNotifyPermission } from "../overview.js";
 import { getBook, patchBook, previewBook, confirmBook, deleteBook, runQueue, startTrial, trial, queueOf } from "../bookapi.js";
 import { inferTitlePattern } from "../titlepattern.js";
 import { Pager, PAGE_SIZE } from "../pager.js";
+import { filesFromDrop } from "../dropfiles.js";
 
 const fmtN = (n) => Number(n).toLocaleString("vi-VN");
 const fmtHours = (sec) => (sec >= 3600 ? `${(sec / 3600).toFixed(1).replace(".", ",")} giờ` : `${Math.max(1, Math.round(sec / 60))} phút`);
@@ -56,7 +57,7 @@ export function mountWizardStart(root) {
       onchange: (e) => addFiles([...e.target.files]) });
     const drop = h("label", { class: "drop", for: "wFiles", tabindex: 0,
       ondragover: (e) => { e.preventDefault(); drop.classList.add("over"); }, ondragleave: () => drop.classList.remove("over"),
-      ondrop: (e) => { e.preventDefault(); drop.classList.remove("over"); addFiles([...e.dataTransfer.files]); },
+      ondrop: (e) => { e.preventDefault(); drop.classList.remove("over"); filesFromDrop(e).then(addFiles).catch(showError); },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } } },
       h("div", { class: "big" }, W1.book || W1.files.length ? "Thêm hoặc đổi file" : "Kéo file vào đây, hoặc bấm để chọn"),
       h("div", { class: "muted" }, "Nhận file .txt, .epub, .html, hoặc một file .zip chứa nhiều file"), input);

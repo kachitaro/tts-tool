@@ -5,6 +5,8 @@ import { explain } from "../errors.js";
 import { modal } from "../ui.js";
 import { audioDuration, judgeDuration, recordMic } from "../recorder.js";
 import { resetVoices } from "../store.js";
+import { filesFromDrop } from "../dropfiles.js";
+import { canRecord } from "../appenv.js";
 
 const GENDERS = [["", "Không rõ"], ["nam", "Nam"], ["nữ", "Nữ"]];
 const REGIONS = [["", "Không rõ"], ["bac", "Bắc"], ["trung", "Trung"], ["nam", "Nam"]];
@@ -43,7 +45,7 @@ export function openAddVoice({ engines, onSaved }) {
       S.rec = r; draw();
       const f = await r.done;
       S.rec = null;
-      if (f) await setSample(f); else draw();
+      if (f) await setSample(f); else { S.err = "Không thu được âm thanh. Kiểm tra micro rồi thử lại, hoặc chọn file ghi âm có sẵn."; draw(); }
     } catch (e) { S.rec = null; S.err = e.message; draw(); }
   }
 
@@ -56,7 +58,7 @@ export function openAddVoice({ engines, onSaved }) {
     const input = h("input", { type: "file", accept: "audio/*", class: "sr", onchange: (e) => e.target.files[0] && setSample(e.target.files[0]) });
     const drop = h("label", { class: "drop small" + (S.file ? " has" : ""), tabindex: 0,
       ondragover: (e) => { e.preventDefault(); drop.classList.add("over"); }, ondragleave: () => drop.classList.remove("over"),
-      ondrop: (e) => { e.preventDefault(); drop.classList.remove("over"); const f = e.dataTransfer.files[0]; if (f) setSample(f); },
+      ondrop: (e) => { e.preventDefault(); drop.classList.remove("over"); filesFromDrop(e).then(([f]) => f && setSample(f)); },
       onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } } },
       input, h("div", { class: "big" }, S.file ? "🎙️ " + S.file.name : "Kéo file vào đây hoặc bấm để chọn"), h("div", { class: "muted" }, "File wav, mp3, m4a…"));
     const lvl = S.info && S.info.level;
@@ -64,9 +66,12 @@ export function openAddVoice({ engines, onSaved }) {
       h("div", { class: "notice" }, h("b", {}, "Mẫu tốt: "), "3–10 giây, một người nói, không nhạc nền, không tiếng ồn."),
       clonable.length ? null : h("div", { class: "notice err" }, "Máy này chưa có giọng nào cho phép tạo giọng từ ghi âm."),
       h("div", { class: "stack", style: "margin-top:14px" }, drop,
-        h("div", { class: "row" }, h("span", { class: "muted" }, "hoặc"),
-          h("button", { type: "button", class: "btn" + (S.rec ? " danger" : ""), disabled: !clonable.length, onclick: toggleRec }, S.rec ? "■ Dừng ghi âm" : "● Ghi âm bằng micro"),
-          h("span", { id: "recTime", class: "muted", "aria-live": "polite" }, S.rec ? "Đang ghi…" : "")),
+        canRecord()
+          ? h("div", { class: "row" }, h("span", { class: "muted" }, "hoặc"),
+            h("button", { type: "button", class: "btn" + (S.rec ? " danger" : ""), disabled: !clonable.length, onclick: toggleRec }, S.rec ? "■ Dừng ghi âm" : "● Ghi âm bằng micro"),
+            h("span", { id: "recTime", class: "muted", "aria-live": "polite" }, S.rec ? "Đang ghi…" : ""))
+          : h("div", { class: "row" }, h("button", { type: "button", class: "btn", disabled: !clonable.length, onclick: () => input.click() }, "Chọn file ghi âm"),
+            h("span", { class: "muted" }, "Cửa sổ này chưa ghi âm trực tiếp được. Hãy ghi bằng ứng dụng khác rồi chọn file.")),
         S.err && h("div", { class: "notice err" }, S.err),
         S.file && h("div", { class: "card flat" }, h("div", { class: "row" }, h("b", {}, "Nghe lại mẫu"), h("button", { type: "button", class: "btn small ghost", onclick: () => { S.file = null; S.info = null; draw(); } }, "Chọn lại")),
           h("audio", { controls: true, src: S.url, style: "width:100%;margin-top:8px" }),

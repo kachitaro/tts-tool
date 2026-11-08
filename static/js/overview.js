@@ -1,7 +1,8 @@
 // Trạng thái chung (GET /api/overview): thanh trên cùng, màn chính, danh sách sách nói. Hỏi định kỳ, báo khi tạo xong.
 import { getJSON } from "./api.js";
 import { h } from "./dom.js";
-import { prefs } from "./store.js";
+import { getSettings } from "./defaults.js";
+import { inApp } from "./appenv.js";
 import { toast } from "./ui.js";
 
 export const overview = { data: null };
@@ -26,10 +27,19 @@ function announceFinish(f) {
     : `${f.title || "Sách nói"}: xong ${f.done} chương` + (f.errors ? `, ${f.errors} chương lỗi` : "");
   toast(trial ? [h("b", {}, `Đã xong ${f.done} chương thử. `), "Nghe thử rồi bấm Tạo tiếp.", h("div", { class: "row", style: "margin-top:10px" }, h("a", { class: "btn small primary", href: "#/sach/" + encodeURIComponent(f.book) }, "Mở truyện"))] : ["Tạo sách nói xong. ", body],
     { kind: f.errors && !trial ? "error" : "info", ms: 12000 });
-  if (prefs.get("notify", true) && "Notification" in window && Notification.permission === "granted") new Notification(trial ? "Giọng Việt — đã xong chương thử" : "Giọng Việt — tạo xong", { body });
+  desktopNotice(trial ? "Giọng Việt — đã xong chương thử" : "Giọng Việt — tạo xong", body);
+}
+
+/** Thông báo của trình duyệt. Trong app cửa sổ riêng không dùng (webview thường không có), server đã gọi notify-send. */
+async function desktopNotice(title, body) {
+  if (inApp() || !("Notification" in window) || Notification.permission !== "granted") return;
+  try { if ((await getSettings(true)).notify === false) return; } catch { /* không đọc được cài đặt: cứ báo */ }
+  new Notification(title, { body });
 }
 
 /** Xin quyền thông báo của trình duyệt (gọi khi người dùng chủ động bấm một nút bắt đầu việc dài). */
-export function askNotifyPermission() {
-  if (prefs.get("notify", true) && "Notification" in window && Notification.permission === "default") Notification.requestPermission();
+export async function askNotifyPermission() {
+  if (inApp() || !("Notification" in window) || Notification.permission !== "default") return;
+  try { if ((await getSettings()).notify === false) return; } catch { /* cứ hỏi */ }
+  Notification.requestPermission();
 }

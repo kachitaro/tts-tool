@@ -59,14 +59,16 @@ export async function recordMic(onTick = () => {}) {
   if (!navigator.mediaDevices || !window.MediaRecorder) throw new Error(MIC_DENIED);
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { throw new Error(MIC_DENIED); }
-  const rec = new MediaRecorder(stream), chunks = [], t0 = Date.now();
+  // Chọn định dạng rõ ràng: WebKitGTK mặc định chọn mp4/AAC mà máy thường thiếu bộ mã hoá nên thu ra file rỗng.
+  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((t) => MediaRecorder.isTypeSupported(t));
+  const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream), chunks = [], t0 = Date.now();
   rec.ondataavailable = (e) => chunks.push(e.data);
   const tick = setInterval(() => { const s = (Date.now() - t0) / 1000; onTick(s); if (s >= SAMPLE_MAX) rec.stop(); }, 250);
   const done = new Promise((resolve) => {
     rec.onstop = async () => {
       clearInterval(tick);
       stream.getTracks().forEach((t) => t.stop());
-      resolve(chunks.length ? await recordedToFile(new Blob(chunks, { type: rec.mimeType })) : null);
+      resolve(chunks.some((c) => c.size) ? await recordedToFile(new Blob(chunks, { type: rec.mimeType })) : null);
     };
   });
   rec.start();

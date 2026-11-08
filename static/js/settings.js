@@ -2,8 +2,8 @@
 import { h, sizeText as fmtBytes } from "./dom.js";
 import { getJSON, sendJSON } from "./api.js";
 import { modal, switchEl, showError, toast } from "./ui.js";
-import { engines, voices, prefs } from "./store.js";
-import { getSettings, saveDefaultVoice, effectiveDefault } from "./defaults.js";
+import { engines, voices } from "./store.js";
+import { getSettings, saveDefaultVoice, saveNotify, effectiveDefault } from "./defaults.js";
 import { VoicePicker, keyOf, displayName, metaLine } from "./voicepicker.js";
 import { showShortcuts } from "./shortcuts.js";
 import { askNotifyPermission } from "./overview.js";
@@ -39,7 +39,7 @@ export async function openSettings() {
         try { await sendJSON("/api/queue/settings", { inhibit_sleep: on }); } catch (e) { showError(e); }
       }),
       h("div", { class: "hint", style: "margin-top:-8px" }, q.inhibit === "unavailable" ? "Máy này không hỗ trợ tính năng này, tool sẽ bỏ qua." : "Tạo cả bộ truyện mất nhiều giờ; máy sẽ không tự tắt màn hình đi ngủ giữa chừng."),
-      switchEl("Báo cho tôi khi tạo xong (hiện thông báo trên màn hình)", prefs.get("notify", true), (on) => { prefs.set("notify", on); if (on) askNotifyPermission(); }),
+      switchEl("Báo cho tôi khi tạo xong (hiện thông báo trên màn hình)", st.notify !== false, async (on) => { try { st = await saveNotify(on); if (on) askNotifyPermission(); } catch (e) { showError(e); } }),
       h("details", { class: "adv", style: "margin:0" }, h("summary", {}, "Nâng cao"),
         h("div", { class: "adv-body stack", style: "--gap:10px" },
           h("dl", { class: "kv" },

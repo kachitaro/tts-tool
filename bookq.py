@@ -37,6 +37,7 @@ import books
 import dialogue
 import library
 import lexicon
+import settings
 import narrate
 from engines.base import BACKGROUND
 from engines.vieneu import default_precision
@@ -366,11 +367,12 @@ class BookQueue:
     def _notify(self, f: dict) -> None:
         import shutil as _sh
 
-        if not _sh.which("notify-send"):
+        if not _sh.which("notify-send") or not settings.load()["notify"]:
             return
-        body = f"{f['title'] or 'Sách nói'}: xong {f['done']} chương" + (f", {f['errors']} lỗi" if f["errors"] else "")
+        trial = f.get("trial")
+        body = f"{f['title'] or 'Sách nói'}: xong {f['done']} chương" + (f", {f['errors']} lỗi" if f["errors"] else "") + (". Nghe thử rồi bấm Tạo tiếp." if trial else "")
         try:
-            subprocess.Popen(["notify-send", "-a", "Giọng Việt", "Giọng Việt — tạo sách nói xong", body],
+            subprocess.Popen(["notify-send", "-a", "Giọng Việt", "Giọng Việt — đã xong chương thử" if trial else "Giọng Việt — tạo sách nói xong", body],
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         except OSError as ex:
             log.info("notify-send lỗi: %s", ex)

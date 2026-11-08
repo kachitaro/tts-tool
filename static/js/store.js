@@ -12,7 +12,7 @@ export const voices = (force = false) => (voicesP = !force && voicesP ? voicesP 
 export const resetVoices = () => { voicesP = null; };
 
 /** Các khoá localStorage giao diện còn dùng (đều có tiền tố "gv:"). "voice:" là tiền tố: một khoá cho mỗi loại giọng. */
-export const KEPT_KEYS = ["engine", "voice-last", "speed", "notify", "playRate", "mix:auto"];
+export const KEPT_KEYS = ["engine", "voice-last", "speed", "playRate", "mix:auto"];
 export const KEPT_PREFIXES = ["voice:"];
 
 /** Khoá nào cần xoá: khoá "gv:" không còn dùng (vd. gv:trial5:*) và khoá của giao diện cũ ("engine", "voice:*" không có tiền tố). */

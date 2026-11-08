@@ -9,6 +9,11 @@ export async function saveDefaultVoice(v) {
   return cache;
 }
 
+export async function saveNotify(on) {
+  cache = await sendJSON("/api/settings", { notify: !!on }, "PUT");
+  return cache;
+}
+
 const usable = (v) => v.usable !== false && (!v.lang || v.lang.startsWith("vi"));
 
 /** Giọng mặc định: người dùng đã chọn (nếu còn dùng được) → giọng có sẵn đánh dấu ★ đầu tiên của "Giọng trên máy"

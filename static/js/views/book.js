@@ -1,8 +1,9 @@
 // Trang truyện = bảng điều khiển: tiến độ lớn, Tạm dừng / Tiếp tục, Tải về, danh sách chương, tên riêng, cài đặt.
 import { h, fmtLeft, sleep, sizeText } from "../dom.js";
+import { saveAs } from "../appenv.js";
 import { api, getJSON, sendJSON } from "../api.js";
 import { go } from "../router.js";
-import { skeleton, showError, toast, confirmBox, modal } from "../ui.js";
+import { skeleton, showError, toast, confirmBox, modal, savedToast } from "../ui.js";
 import { play } from "../player.js";
 import { menuButton } from "../menu.js";
 import { Pager, PAGE_SIZE } from "../pager.js";
@@ -202,7 +203,7 @@ export function mountBook(root, { id }) {
       { label: "Nghe thử 1 phút đầu chương", onclick: () => listen(c, { trial: true, chars: 900 }) },
       { label: "Nghe thử 1 phút từ giữa chương", hint: "Nơi hay có lời thoại và tên riêng", onclick: () => listen(c, { trial: true, chars: 900, offset: 0.5 }) },
       { label: "Xem chữ của chương", onclick: () => viewText(c) },
-      c.status === "done" ? { label: "Tải chương này (MP3)", onclick: () => { const a = h("a", { href: `/api/books/${encodeURIComponent(id)}/chapters/${c.n}/audio.mp3`, download: `${c.n}.mp3` }); a.click(); } } : null,
+      c.status === "done" ? { label: "Tải chương này (MP3)", onclick: () => saveAs(`/api/books/${encodeURIComponent(id)}/chapters/${c.n}/audio.mp3`, `${c.n}.mp3`, { onDone: savedToast }).catch(showError) } : null,
     ];
     return h("div", { class: "chrow" }, h("div", { class: "name" }, h("b", {}, `${c.n}. `), c.title || "(không có tên)", h("div", { class: "sub" + (c.stale || c.status === "error" ? " warnc" : "") }, statusText(c))),
       c.status === "running" && c.segments && c.segments.total ? h("div", { style: "width:90px" }, h("div", { class: "bar" }, h("i", { style: `width:${Math.round((100 * c.segments.done) / c.segments.total)}%` }))) : null,

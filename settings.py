@@ -1,4 +1,4 @@
-"""Cài đặt chung của người dùng (data/settings.json). Hiện có: giọng mặc định.
+"""Cài đặt chung của người dùng (data/settings.json). Hiện có: giọng mặc định, báo khi tạo sách nói xong (notify).
 
 Chỉ giữ những gì người dùng chọn; "chưa chọn" = null và giao diện tự chọn giọng có sẵn được đánh dấu ★ đầu tiên của giọng trên máy.
 """
@@ -25,15 +25,24 @@ def load() -> dict:
         raw = {}
     dv = raw.get("default_voice")
     ok = isinstance(dv, dict) and isinstance(dv.get("engine"), str) and isinstance(dv.get("voice"), str) and dv["engine"] and dv["voice"]
-    return {"default_voice": {"engine": dv["engine"], "voice": dv["voice"]} if ok else None}
+    return {"default_voice": {"engine": dv["engine"], "voice": dv["voice"]} if ok else None,
+            "notify": raw.get("notify") is not False}   # mặc định bật
 
 
-def save(default_voice: dict | None) -> dict:
-    """default_voice: {"engine", "voice"} hoặc None (xoá lựa chọn). Việc kiểm tra giọng có tồn tại do server làm trước khi gọi."""
-    if default_voice is not None and not (str(default_voice.get("engine", "")).strip() and str(default_voice.get("voice", "")).strip()):
+_KEEP = object()
+
+
+def save(default_voice=_KEEP, notify: bool | None = None) -> dict:
+    """default_voice: {"engine", "voice"} hoặc None (xoá lựa chọn); bỏ qua = giữ nguyên. notify: bật/tắt thông báo khi tạo xong.
+    Việc kiểm tra giọng có tồn tại do server làm trước khi gọi."""
+    if default_voice not in (_KEEP, None) and not (str(default_voice.get("engine", "")).strip() and str(default_voice.get("voice", "")).strip()):
         raise SettingsError("Giọng mặc định cần có engine và voice.")
     with _lock:
+        cur = load()
+        if default_voice is not _KEEP:
+            cur["default_voice"] = None if default_voice is None else {"engine": str(default_voice["engine"]), "voice": str(default_voice["voice"])}
+        if notify is not None:
+            cur["notify"] = bool(notify)
         PATH.parent.mkdir(parents=True, exist_ok=True)
-        library._write_json(PATH, {"default_voice": None if default_voice is None else
-                                    {"engine": str(default_voice["engine"]), "voice": str(default_voice["voice"])}})
+        library._write_json(PATH, cur)
     return load()

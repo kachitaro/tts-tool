@@ -22,6 +22,11 @@ export function showError(err, { retry } = {}) {
   return e;
 }
 
+/** Báo đã lưu file (trong app cửa sổ riêng, sau hộp thoại "Lưu thành…"). info: { path, bytes }. */
+export function savedToast(info) {
+  toast([h("b", {}, "Đã lưu file. "), h("span", { style: "overflow-wrap:anywhere" }, info.path || "")]);
+}
+
 /** Hộp thoại. content: Node | Node[]. Trả { close, el }. Esc hoặc bấm nền để đóng. */
 export function modal(content, { wide = false, onclose } = {}) {
   const host = $("#modalHost");
