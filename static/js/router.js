@@ -2,7 +2,7 @@
 // Đường dẫn có tham số: "/sach/:id/kiem-tra". Đường dẫn chính xác được ưu tiên hơn đường dẫn có tham số.
 import { scrollPage } from "./dom.js";
 const routes = [];
-export const pending = { reuse: null };   // "Dùng lại" từ Lịch sử → màn Đọc văn bản nhận
+export const pending = { reuse: null, voiceAction: null };   // "Dùng lại" từ Lịch sử → màn Đọc văn bản nhận
 let cleanup = null, current = null;
 
 export const route = (path, mount) => routes.push({ parts: path.split("/").filter(Boolean), mount });

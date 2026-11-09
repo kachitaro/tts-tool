@@ -124,7 +124,7 @@ echo "== thư viện giọng"
 curl -s -o "$WORK/sample.wav" -X POST "$B/api/tts" -F text="Hôm nay trời đẹp lắm, tôi muốn đi dạo cùng bạn bè quanh hồ vào buổi chiều." -F engine=vieneu -F voice="Trúc Ly"
 check "thêm giọng không consent → 400" expect_status 400 -X POST "$B/api/library" -F name=A -F engine=vieneu -F ref_audio=@"$WORK/sample.wav"
 check "thêm giọng audio quá ngắn → 400" bash -c "$PY -c \"import soundfile as sf,numpy as np; sf.write('$WORK/short.wav', np.zeros(24000)+0.1, 24000)\"; [ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/library -F name=S -F engine=vieneu -F consent=true -F ref_audio=@$WORK/short.wav)\" = 400 ]"
-check "thêm giọng (clone)" bash -c "[ \"\$(curl -s -o $WORK/lib.json -w '%{http_code}' -X POST $B/api/library -F name='Giọng thử' -F engine=vieneu -F gender=nữ -F region=bac -F tags='thử,smoke' -F consent=true -F ref_audio=@$WORK/sample.wav)\" = 200 ]"
+check "thêm giọng (clone)" bash -c "[ \"\$(curl -s -o $WORK/lib.json -w '%{http_code}' -X POST $B/api/library -F name='Giọng thử' -F engine=vieneu -F gender=nữ -F region=bac -F age=gia -F tags='thử,smoke' -F consent=true -F ref_audio=@$WORK/sample.wav)\" = 200 ]"
 LIB=$(json "d['voice']" <"$WORK/lib.json" 2>/dev/null)
 check "giọng lib: xuất hiện trong /api/voices/vieneu" bash -c "curl -s $B/api/voices/vieneu | grep -q '$LIB'"
 check "tts bằng giọng lib:" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X POST $B/api/tts -F text='Xin chào.' -F engine=vieneu -F voice='$LIB')\" = 200 ]"
@@ -141,6 +141,17 @@ assert library.drop_untagged_previews() == 1 and not (d / "preview.wav").exists(
 (d / "preview.mp3").write_bytes(b"x"); (d / "preview.v3turbo.wav").write_bytes(b"x")
 assert library.drop_untagged_previews() == 0 and (d / "preview.mp3").exists() and (d / "preview.v3turbo.wav").exists()
 PYEOF2
+check "giọng lib có nhãn tuổi 'gia' (thêm giọng, /api/voices), đổi bằng PUT /api/voices/age (cũng ở /api/library), tuổi sai → 400" env B="$B" LIB="$LIB" $PY - <<'PYEOF3'
+import os, httpx
+B, LIB = os.environ["B"], os.environ["LIB"]
+c = httpx.Client(base_url=B, timeout=60)
+v = next(x for x in c.get("/api/voices/vieneu").json() if x["id"] == LIB)
+assert v["age"] == "gia" and v["age_source"] == "user", v
+assert c.put("/api/voices/age", json={"engine": "vieneu", "voice": LIB, "age": "tre"}).status_code == 200
+assert next(x for x in c.get("/api/library").json() if x["voice"] == LIB)["age"] == "tre"
+assert c.put("/api/voices/age", json={"engine": "vieneu", "voice": LIB, "age": "gia-lam"}).status_code == 400
+assert c.put("/api/voices/age", json={"engine": "vieneu", "voice": "lib:khong-co", "age": "gia"}).status_code == 404
+PYEOF3
 check "sửa metadata + yêu thích" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -X PATCH $B/api/library/${LIB#lib:} -F name='Giọng đổi tên' -F favorite=true)\" = 200 ]"
 
 echo "== trộn giọng"

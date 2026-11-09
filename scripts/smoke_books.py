@@ -633,6 +633,87 @@ def t_cast_api() -> None:
     j(client.delete(f"{B}/api/books/{bid}"))
 
 
+def t_cast_characters_api() -> None:
+    """Nhân vật "Tên - giới tính - tuổi": đọc từng dòng (lỗi theo dòng, không đoán), nhóm tuổi, tự vào vai theo nhóm, vai chọn tay."""
+    import cast as castmod
+
+    text = ("Trần Bình An - nam - 16\nLão Lưu - nam - già\n[Ninh Diêu - nữ - 25]\nTiểu Linh - 18\nBà Hai - nữ\nÔng Ba - nam - 56\n"
+            "Ai đó\nTrần Bình An - nam - 30\nX - robot - 20\nY - nam - abc\nCô Tư - nữ - trung niên\nLý - Tiểu Long - nam - 24\n")
+    r = j(client.post(f"{B}/api/cast/parse-characters", json={"text": text}))
+    got = {c["name"]: (c["gender"], c["age"], c["group"]) for c in r["characters"]}
+    assert got == {"Trần Bình An": ("nam", 16, "tre"), "Lão Lưu": ("nam", None, "gia"), "Ninh Diêu": ("nữ", 25, "trung_nien"),
+                   "Ông Ba": ("nam", 56, "gia"), "Cô Tư": ("nữ", None, "trung_nien"), "Lý - Tiểu Long": ("nam", 24, "tre")}, got   # 24 < 25 trẻ; 25 và 56 là biên
+    errs = {e["line"]: e["error"] for e in r["errors"]}
+    assert sorted(errs) == [4, 5, 7, 8, 9, 10], errs
+    assert "giới tính" in errs[4] and "tuổi" in errs[5] and "khai" in errs[8] and "robot" in errs[9] and "abc" in errs[10], errs   # thiếu giới tính báo lỗi, không đoán
+    assert client.post(f"{B}/api/cast/parse-characters", json={"text": "x" * 60_000}).status_code == 400
+    assert [castmod.parse_characters(f"A - nam - {a}")[0][0]["group"] for a in (0, 24, 25, 55, 56, 120)] == ["tre", "tre", "trung_nien", "trung_nien", "gia", "gia"]
+    # lưu cùng dàn giọng: nhân vật chỉ nhận khi đủ giới tính + tuổi hợp lệ; vai chọn tay phải tồn tại
+    story = ("Chương 1: Gặp gỡ\nLão Lưu nói: “Con đi cẩn thận nhé, trời sắp tối rồi đấy.”\nTrần Bình An nói: “Vâng ạ, con biết rồi.”\n"
+             "Ninh Diêu nói: “Em đi cùng anh được không nào?”\nÔng Ba hỏi: “Có chuyện gì thế các cháu?”\n")
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("c.txt", story.encode(), "text/plain"))], data={"title": "Nhân vật smoke"}))
+    bid = d["id"]
+    j(client.post(f"{B}/api/books/{bid}/chapters", json={}))
+    V = lambda n: {"engine": "vieneu", "voice": n}  # noqa: E731
+    roles = [{"id": "nt", "slot": "nam_tre", "name": "Nam trẻ", "voices": [V("Adam bựa")]},
+             {"id": "ng", "slot": "nam_gia", "name": "Lão ông", "voices": [V("Thiện Minh")]},
+             {"id": "nn", "slot": "nu_trung_nien", "name": "Nữ trung niên", "voices": [V("Trúc Ly")]},
+             {"id": "tay", "name": "Vai tay", "voices": [V("Mai Anh")]}]
+    chars = r["characters"]
+    for bad in ([{"name": "A", "age": 20}], [{"name": "A", "gender": "nam"}], [{"name": "A", "gender": "nam", "age": 200}],
+                [{"name": "A", "gender": "nam", "age": 20, "role": "khong-co"}], [{"name": "A", "gender": "nam", "age": 20}] * 2):
+        assert client.patch(f"{B}/api/books/{bid}", json={"cast": {"enabled": True, "roles": roles, "characters": bad}}).status_code == 400, bad
+    saved = j(client.patch(f"{B}/api/books/{bid}", json={"cast": {"enabled": True, "roles": roles, "characters": chars}}))["cast"]
+    assert len(saved["characters"]) == 6 and saved["roles"][0]["slot"] == "nam_tre", saved
+    pv = j(client.post(f"{B}/api/books/{bid}/cast/preview", json={}))
+    per = {x["name"]: x["lines"] for x in pv["roles"]}
+    assert per == {"Nam trẻ": 1, "Lão ông": 2, "Nữ trung niên": 1, "Vai tay": 0}, per   # Bình An (16) → nam trẻ; Lão Lưu (già) + Ông Ba (56) → lão ông; Ninh Diêu (25) → nữ trung niên
+    assert pv["unassigned_characters"] == [], pv
+    # chọn tay: kéo Ninh Diêu sang "Vai tay" thì thoại của cô về vai đó
+    chars2 = [{**c, "role": "tay"} if c["name"] == "Ninh Diêu" else c for c in chars]
+    pv2 = j(client.post(f"{B}/api/books/{bid}/cast/preview", json={"cast": {"roles": roles, "characters": chars2}}))
+    assert {x["name"]: x["lines"] for x in pv2["roles"]}["Vai tay"] == 1, pv2
+    # nhân vật không có vai nào cùng nhóm → báo chưa có vai
+    pv3 = j(client.post(f"{B}/api/books/{bid}/cast/preview", json={"cast": {"roles": roles[:1], "characters": chars}}))
+    assert "Lão Lưu" in pv3["unassigned_characters"] and "Trần Bình An" not in pv3["unassigned_characters"], pv3
+    j(client.delete(f"{B}/api/books/{bid}"))
+
+
+def t_voice_age_api() -> None:
+    """Nhãn tuổi của giọng có sẵn: gợi ý theo phong cách, người dùng chỉnh được (lưu ở data/voice_ages.json), bỏ chọn thì về gợi ý."""
+    vs = {v["id"]: v for v in j(client.get(f"{B}/api/voices/vieneu"))}
+    assert vs["Adam bựa"]["age"] == "tre" and vs["Adam bựa"]["age_source"] == "suggested", vs["Adam bựa"]     # "Phong cách tự nhiên"
+    assert vs["Thiện Minh"]["age"] == "trung_nien" and vs["Thiện Minh"]["age_source"] == "suggested"           # "Phong cách kể chuyện"
+    put = lambda body: client.put(f"{B}/api/voices/age", json={"engine": "vieneu", **body})  # noqa: E731
+    j(put({"voice": "Thiện Minh", "age": "gia"}))
+    v = {x["id"]: x for x in j(client.get(f"{B}/api/voices/vieneu"))}["Thiện Minh"]
+    assert v["age"] == "gia" and v["age_source"] == "user", v
+    assert put({"voice": "Thiện Minh", "age": "rất già"}).status_code == 400
+    assert put({"voice": "Không có giọng này", "age": "gia"}).status_code == 404
+    assert client.put(f"{B}/api/voices/age", json={"engine": "khong-co", "voice": "x", "age": "gia"}).status_code in (400, 404)
+    j(put({"voice": "Thiện Minh", "age": ""}))
+    v = {x["id"]: x for x in j(client.get(f"{B}/api/voices/vieneu"))}["Thiện Minh"]
+    assert v["age"] == "trung_nien" and v["age_source"] == "suggested", v
+
+
+def t_dup_lines_keep_dialogue() -> None:
+    """Quy tắc "dòng trùng lặp" không xoá thoại (gạch thoại / ngoặc kép) và dòng ngắn hơn 30 ký tự; vẫn xoá đầu/cuối trang dài."""
+    ad = "Đọc truyện nhanh nhất tại trang web truyện miễn phí này nhé các bạn"
+    long_dlg = "– Cháu xin phép bác cho cháu đi ra ngoài trấn một lát được không ạ?"
+    chapters = []
+    for i in range(1, 6):
+        chapters.append(f"Chương {i}: Tiêu đề {i}\n– Vâng.\n\"Dạ.\"\n{long_dlg}\n“Câu thoại trong ngoặc kép này khá dài, lặp lại ở mọi chương.”\n"
+                        f"Nội dung riêng của chương số {i} dài đủ để không bị coi là lặp lại ở đâu cả.\n{ad}\n")
+    d = j(client.post(f"{B}/api/books/import", files=[("files", ("d.txt", "".join(chapters).encode(), "text/plain"))], data={"title": "Dòng lặp smoke"}))
+    bid = d["id"]
+    j(client.post(f"{B}/api/books/{bid}/chapters", json={}))
+    for n in (1, 3, 5):
+        t = j(client.get(f"{B}/api/books/{bid}/chapters/{n}"))["text"]
+        assert "– Vâng." in t and '"Dạ."' in t and long_dlg in t and "Câu thoại trong ngoặc kép này khá dài" in t, t   # thoại giữ nguyên dù lặp ở 5 chương
+        assert ad not in t, t                                                                                      # dòng quảng cáo dài vẫn bị bỏ
+    j(client.delete(f"{B}/api/books/{bid}"))
+
+
 def t_cleanup_names() -> None:
     j(client.delete(f"{B}/api/books/{state['names']}"))
 
@@ -1113,6 +1194,9 @@ for name, fn in [
     ("API: 6b mục từ điển nghỉ trước 1s làm audio dài thêm ~1s", t_pause_entry_lengthens),
     ("API: 6b giọng thứ hai cho lời thoại đổi audio, giọng không tồn tại → 404", t_dialogue_voice_api),
     ("API: dàn giọng nhân vật — kiểm tra đầu vào, xem thử gán vai, giọng theo vai, chữ ký, audio đổi", t_cast_api),
+    ("API: nhân vật 'Tên - giới tính - tuổi' — đọc từng dòng, nhóm tuổi, tự vào vai, chọn tay, chưa có vai", t_cast_characters_api),
+    ("API: nhãn tuổi giọng có sẵn — gợi ý, chỉnh tay, bỏ chọn về gợi ý, lỗi đầu vào", t_voice_age_api),
+    ("quy tắc dòng lặp không xoá thoại (– / ngoặc kép) và dòng ngắn < 30 ký tự", t_dup_lines_keep_dialogue),
     ("API: 6c Đọc thử 1 phút qua hàng đợi (job có tiến độ, chars/offset, lỗi đầu vào)", t_trial_read),
     ("API: dọn truyện thử của 6b", t_cleanup_names),
     ("API: nhập nhiều .txt → mỗi file một chương, sắp xếp tự nhiên", t_multi_files),

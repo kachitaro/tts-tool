@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+import voice_age
+
 MAX_ROLES = 20
 MAX_VOICES = 4
 MAX_WORDS = 60  # số tên / từ khoá mỗi vai
@@ -30,8 +32,146 @@ KIND_DEFAULT = (
 )
 
 
+MAX_CHARACTERS = 200
+SLOTS = (
+    "nam_tre",
+    "nam_trung_nien",
+    "nam_gia",
+    "nu_tre",
+    "nu_trung_nien",
+    "nu_gia",
+)  # (giới tính, nhóm tuổi) → vai của mẫu 7 vai
+GENDER_WORDS = {"nam": "nam", "nữ": "nữ", "nu": "nữ"}
+AGE_WORDS = {
+    "trẻ": "tre",
+    "tre": "tre",
+    "trung niên": "trung_nien",
+    "trung nien": "trung_nien",
+    "trung_nien": "trung_nien",
+    "già": "gia",
+    "gia": "gia",
+}
+_SEP = re.compile(r"\s+[-–—]\s+")
+
+
 class CastError(ValueError):
     pass
+
+
+def slot_of(gender: str, group: str) -> str:
+    return f"{'nam' if gender == 'nam' else 'nu'}_{group}"
+
+
+def _parse_age(raw: str) -> tuple[int | None, str] | None:
+    """ "16" → (16, "tre"); "già" → (None, "gia"); không hiểu → None."""
+    t = " ".join(raw.lower().split())
+    if t.isdigit() and 0 <= int(t) <= 120:
+        return int(t), voice_age.group_of(int(t))
+    g = AGE_WORDS.get(t)
+    return (None, g) if g else None
+
+
+def parse_characters(text: str) -> tuple[list[dict], list[dict]]:
+    """Mỗi dòng "Tên - giới tính - tuổi" (tuổi là số hoặc trẻ / trung niên / già) → (nhân vật hợp lệ, lỗi theo dòng).
+    Thiếu giới tính hoặc tuổi là lỗi của dòng đó, không đoán. Dòng trống bị bỏ qua; số dòng đếm từ 1."""
+    chars: list[dict] = []
+    errors: list[dict] = []
+    seen: set[str] = set()
+    for n, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip().strip("[]").strip()
+        if not line:
+            continue
+        parts = [p.strip() for p in _SEP.split(line)]
+
+        def err(msg: str, n: int = n, raw: str = raw) -> None:
+            errors.append({"line": n, "text": raw.strip(), "error": msg})
+
+        if len(parts) < 2:
+            err("Dòng cần có dạng: Tên - giới tính - tuổi. Ví dụ: Trần Bình An - nam - 16")
+            continue
+        if len(parts) == 2:
+            if parts[1].lower() in GENDER_WORDS:
+                err("Thiếu tuổi (số, hoặc trẻ / trung niên / già).")
+            elif _parse_age(parts[1]):
+                err("Thiếu giới tính (viết nam hoặc nữ).")
+            else:
+                err("Dòng cần có dạng: Tên - giới tính - tuổi. Ví dụ: Trần Bình An - nam - 16")
+            continue
+        name, g_raw, a_raw = " ".join(" - ".join(parts[:-2]).split()), parts[-2], parts[-1]
+        gender = GENDER_WORDS.get(g_raw.lower())
+        age = _parse_age(a_raw)
+        if not name:
+            err("Thiếu tên nhân vật.")
+        elif len(name) > MAX_WORD_LEN:
+            err(f"Tên quá dài (tối đa {MAX_WORD_LEN} ký tự).")
+        elif gender is None:
+            err(f"Giới tính “{g_raw}” không hợp lệ (viết nam hoặc nữ).")
+        elif age is None:
+            err(f"Tuổi “{a_raw}” không hợp lệ (số từ 0 đến 120, hoặc trẻ / trung niên / già).")
+        elif name.lower() in seen:
+            err(f"“{name}” đã được khai ở dòng trên.")
+        else:
+            seen.add(name.lower())
+            chars.append(
+                {"name": name, "gender": gender, "age": age[0], "group": age[1], "role": ""}
+            )
+    if len(chars) > MAX_CHARACTERS:
+        raise CastError(f"Tối đa {MAX_CHARACTERS} nhân vật.")
+    return chars, errors
+
+
+def _validate_characters(raw: Any, role_ids: set[str]) -> list[dict]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or len(raw) > MAX_CHARACTERS:
+        raise CastError(f"Danh sách nhân vật không hợp lệ (tối đa {MAX_CHARACTERS}).")
+    out: list[dict] = []
+    seen: set[str] = set()
+    for c in raw:
+        if not isinstance(c, dict):
+            raise CastError("Nhân vật không hợp lệ.")
+        name = " ".join(str(c.get("name", "")).split())
+        if not name or len(name) > MAX_WORD_LEN:
+            raise CastError("Tên nhân vật phải từ 1 đến 60 ký tự.")
+        if name.lower() in seen:
+            raise CastError(f"Nhân vật “{name}” bị khai hai lần.")
+        seen.add(name.lower())
+        gender = GENDER_WORDS.get(str(c.get("gender", "")).lower())
+        if gender is None:
+            raise CastError(f"Nhân vật “{name}” thiếu giới tính (nam hoặc nữ).")
+        age = c.get("age")
+        if isinstance(age, int) and not isinstance(age, bool) and 0 <= age <= 120:
+            group = voice_age.group_of(age)
+        elif age in (None, "") and c.get("group") in ("tre", "trung_nien", "gia"):
+            age, group = None, c["group"]
+        else:
+            raise CastError(
+                f"Nhân vật “{name}” thiếu tuổi hợp lệ (số từ 0 đến 120, hoặc trẻ / trung niên / già)."
+            )
+        role = str(c.get("role") or "")
+        if role and role not in role_ids:
+            raise CastError(f"Nhân vật “{name}” được xếp vào một vai không còn tồn tại.")
+        out.append({"name": name, "gender": gender, "age": age, "group": group, "role": role})
+    return out
+
+
+def effective_roles(spec: dict) -> tuple[list[dict], list[dict]]:
+    """Gộp nhân vật vào vai: (danh sách vai với `names` đã thêm tên nhân vật, nhân vật chưa có vai nào).
+    Nhân vật đi vào vai người dùng chọn tay (`role`), không có thì vai có `slot` = (giới tính, nhóm tuổi) của nó."""
+    roles = [{**r, "names": list(r.get("names") or [])} for r in spec.get("roles") or []]
+    by_id = {r["id"]: r for r in roles}
+    by_slot: dict[str, dict] = {}
+    for r in roles:
+        if r.get("slot"):
+            by_slot.setdefault(r["slot"], r)
+    lost: list[dict] = []
+    for c in spec.get("characters") or []:
+        target = by_id.get(c.get("role") or "") or by_slot.get(slot_of(c["gender"], c["group"]))
+        if target is None:
+            lost.append(c)
+        elif c["name"].lower() not in (x.lower() for x in target["names"]):
+            target["names"].append(c["name"])
+    return roles, lost
 
 
 def _words(raw: Any, what: str, role: str) -> list[str]:
@@ -51,6 +191,13 @@ def _words(raw: Any, what: str, role: str) -> list[str]:
     if len(out) > MAX_WORDS:
         raise CastError(f"Vai “{role}” có quá nhiều {what.lower()} (tối đa {MAX_WORDS}).")
     return out
+
+
+def _slot(r: dict, name: str) -> str:
+    slot = str(r.get("slot") or "")
+    if slot and slot not in SLOTS:
+        raise CastError(f"Vai “{name}” có nhóm không hợp lệ.")
+    return slot
 
 
 def validate(spec: Any) -> dict:
@@ -93,11 +240,16 @@ def validate(spec: Any) -> dict:
                 "id": rid,
                 "name": name,
                 "voices": vs,
+                "slot": _slot(r, name),
                 "names": _words(r.get("names"), "Tên nhân vật", name),
                 "keywords": _words(r.get("keywords"), "Từ khoá", name),
             }
         )
-    return {"enabled": bool(spec.get("enabled")), "roles": roles}
+    return {
+        "enabled": bool(spec.get("enabled")),
+        "roles": roles,
+        "characters": _validate_characters(spec.get("characters"), used),
+    }
 
 
 @dataclass(frozen=True)

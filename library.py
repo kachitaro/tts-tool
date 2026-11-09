@@ -31,7 +31,8 @@ MIN_SECONDS, MAX_SECONDS = 3.0, 30.0
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
 GENDERS = ("", "nam", "nữ")
 REGIONS = ("", "bac", "trung", "nam")
-EDITABLE = ("name", "tags", "gender", "region", "description")
+EDITABLE = ("name", "tags", "gender", "region", "description", "age")
+AGES = ("", "tre", "trung_nien", "gia")
 
 _lock = threading.Lock()
 
@@ -68,7 +69,7 @@ def parse_tags(raw) -> list[str]:
     return out[:10]
 
 
-def _clean_fields(name=None, tags=None, gender=None, region=None, description=None) -> dict:
+def _clean_fields(name=None, tags=None, gender=None, region=None, description=None, age=None) -> dict:
     """Chỉ giữ và kiểm tra các trường được truyền vào (None = không đổi)."""
     out: dict = {}
     if name is not None:
@@ -88,6 +89,10 @@ def _clean_fields(name=None, tags=None, gender=None, region=None, description=No
         out["region"] = region
     if description is not None:
         out["description"] = description.strip()[:300]
+    if age is not None:
+        if age not in AGES:
+            raise LibraryError("Độ tuổi phải là 'tre', 'trung_nien', 'gia' hoặc để trống.")
+        out["age"] = age
     return out
 
 

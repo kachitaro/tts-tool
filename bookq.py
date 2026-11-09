@@ -583,7 +583,7 @@ class BookQueue:
                     seg, book, narr, dlg, glex, bool(item.get("force"))
                 )
                 if wav is None:
-                    return "shutdown"
+                    return "cancel" if self._cancel_current else "shutdown"
                 await anyio.to_thread.run_sync(_flac, path, wav)
                 took = time.perf_counter() - t0
                 gen_seconds += took
@@ -614,7 +614,7 @@ class BookQueue:
         for u in us:
             parts.append(await narrate.render_unit(u, book["speed"], warnings, force))
             await self._serve_trials()  # "Đọc thử" chen vào giữa hai mảnh
-            if self._shutdown:
+            if self._shutdown or self._cancel_current:
                 return None
         return (
             np.concatenate(parts) if parts else np.zeros(int(0.4 * dialogue.SR), dtype=np.float32)

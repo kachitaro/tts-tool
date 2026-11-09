@@ -9,6 +9,7 @@ import { menuButton } from "./menu.js";
 export const keyOf = (v) => `${v.engine}|${v.id}`;
 export const splitKey = (k) => { const i = k.indexOf("|"); return { engine: k.slice(0, i), voice: k.slice(i + 1) }; };
 export const REGION = { bac: "miền Bắc", trung: "miền Trung", nam: "miền Nam" };
+export const AGE = { tre: "trẻ", trung_nien: "trung niên", gia: "già" };
 export const kindLabel = (engine) => (engine && engine.local ? "Giọng trên máy" : "Giọng online");
 export const isMine = (v) => v.source !== "preset";
 const PREVIEW_TEXT = "Xin chào, đây là giọng đọc thử.";
@@ -19,7 +20,7 @@ export const displayName = (v) => v.name || v.label || v.id;
 export function metaLine(v, engines) {
   const g = v.gender ? v.gender[0].toUpperCase() + v.gender.slice(1) : "";
   const kind = v.source === "mix" ? "Giọng pha" : v.source === "clone" ? "Giọng ghi âm" : kindLabel(engines[v.engine]);
-  return [g, REGION[v.region], kind].filter(Boolean).join(" · ");
+  return [g, REGION[v.region], AGE[v.age], kind].filter(Boolean).join(" · ");
 }
 
 /** Nghe thử một giọng bằng trình phát dính đáy (nhớ lại lần đầu để lần sau phát ngay). */
@@ -57,7 +58,7 @@ export async function setFavorite(v, on) {
  */
 export function VoicePicker({ voices, engines, value, onPick, actions, only, tall = false, menu, emptyMine }) {
   const manage = !!menu;
-  const st = { q: "", fav: false, gender: "", region: "" };
+  const st = { q: "", fav: false, gender: "", region: "", age: "" };
   const list = h("div", { class: manage ? "vgrid" : "vlist" + (tall ? " free" : "") });
   const base = voices.filter((v) => (!only || only(v)) && (!v.lang || v.lang.startsWith("vi")));
 
@@ -71,6 +72,8 @@ export function VoicePicker({ voices, engines, value, onPick, actions, only, tal
       chip("Giọng nữ", st.gender === "nữ", () => { st.gender = st.gender === "nữ" ? "" : "nữ"; }),
       h("span", { class: "sep" }),
       ...["bac", "trung", "nam"].map((r) => chip(REGION[r][0].toUpperCase() + REGION[r].slice(1), st.region === r, () => { st.region = st.region === r ? "" : r; })),
+      h("span", { class: "sep" }),
+      ...Object.entries(AGE).map(([k, t]) => chip(t[0].toUpperCase() + t.slice(1), st.age === k, () => { st.age = st.age === k ? "" : k; })),
     );
   }
 
@@ -109,10 +112,10 @@ export function VoicePicker({ voices, engines, value, onPick, actions, only, tal
   function paint() {
     const q = st.q.trim().toLowerCase();
     const shown = base.filter((v) => (!q || (displayName(v) + " " + (v.tags || []).join(" ") + " " + (v.description || "")).toLowerCase().includes(q))
-      && (!st.fav || v.favorite) && (!st.gender || v.gender === st.gender) && (!st.region || v.region === st.region));
+      && (!st.fav || v.favorite) && (!st.gender || v.gender === st.gender) && (!st.region || v.region === st.region) && (!st.age || v.age === st.age));
     if (manage) {
       const groups = [["Yêu thích", shown.filter((v) => v.favorite)], ["Giọng của tôi", shown.filter((v) => !v.favorite && isMine(v))], ["Giọng có sẵn", shown.filter((v) => !v.favorite && !isMine(v))]];
-      const noFilter = !q && !st.gender && !st.region;
+      const noFilter = !q && !st.gender && !st.region && !st.age;
       list.replaceChildren(...groups.flatMap(([name, g]) => g.length ? [h("div", { class: "vgroup" }, name + ` · ${g.length}`), ...g.map(card)]
         : name === "Giọng của tôi" && noFilter && emptyMine ? [h("div", { class: "vgroup" }, name), h("div", { class: "vempty" }, emptyMine)] : []));
       if (!shown.length) list.append(h("p", { class: "muted" }, "Không có giọng nào khớp. Thử bỏ bớt bộ lọc."));

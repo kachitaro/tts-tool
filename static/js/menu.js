@@ -13,6 +13,11 @@ export function menuButton(label, items, { aria = "Thêm lựa chọn", cls = "b
     const wasHidden = pop.classList.contains("hidden");
     if (openPop) openPop.classList.add("hidden");
     pop.classList.toggle("hidden", !wasHidden);
+    pop.classList.remove("up");
+    if (wasHidden) {   // không đủ chỗ phía dưới (chừa chỗ cho thanh phát) thì mở lên trên
+      const r = pop.getBoundingClientRect(), room = window.innerHeight - 96;
+      if (r.bottom > room && btn.getBoundingClientRect().top - r.height - 6 > 0) pop.classList.add("up");
+    }
     openPop = wasHidden ? pop : null;
   } }, label);
   return h("span", { class: "menu" }, btn, pop);

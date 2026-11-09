@@ -35,6 +35,7 @@ import library
 import narrate
 import settings
 import text_normalize
+import voice_age
 from engines.registry import ENGINES
 
 ROOT = Path(__file__).parent
@@ -135,6 +136,8 @@ def lib_as_voice(meta: dict) -> dict:
         "label": meta["name"],
         "gender": meta.get("gender", ""),
         "region": meta.get("region", ""),
+        "age": meta.get("age", ""),
+        "age_source": "user" if meta.get("age") else "",
         "tags": meta.get("tags", []),
         "description": meta.get("description", ""),
         "source": meta.get("source", "clone"),
@@ -149,8 +152,13 @@ def lib_as_voice(meta: dict) -> dict:
 async def engine_voices(e) -> list[dict]:
     """Giọng của engine (preset) + giọng thư viện thuộc engine đó, kèm cờ favorite."""
     favs = library.favorites()
+    ages = voice_age.load()
     out = [
-        {"source": "preset", "usable": True, **v, "favorite": f"{e.id}:{v['id']}" in favs}
+        voice_age.annotate_preset(
+            e.id,
+            {"source": "preset", "usable": True, **v, "favorite": f"{e.id}:{v['id']}" in favs},
+            ages,
+        )
         for v in await e.voices()
     ]
     if e.capabilities()["clone"]:
@@ -316,6 +324,31 @@ async def voices(engine: str):
         return await engine_voices(e)
     except Exception as ex:
         raise HTTPException(500, f"Không nạp được {e.name}: {ex}") from ex
+
+
+class VoiceAgeIn(BaseModel):
+    engine: str
+    voice: str  # id giọng có sẵn, hoặc "lib:<id>" cho giọng thư viện
+    age: str = ""  # "tre" | "trung_nien" | "gia"; "" = bỏ lựa chọn (giọng có sẵn quay về gợi ý)
+
+
+@app.put("/api/voices/age")
+async def voice_age_put(body: VoiceAgeIn):
+    """Đặt nhãn tuổi cho một giọng. Giọng thư viện lưu vào meta.json của giọng, giọng có sẵn lưu ở data/voice_ages.json."""
+    try:
+        voice_age.check(body.age)
+        if body.voice.startswith(library.LIB_PREFIX):
+            library.update(body.voice[len(library.LIB_PREFIX) :], age=body.age)
+        else:
+            e = get_engine(body.engine)
+            if body.voice not in {v["id"] for v in await e.voices()}:
+                raise HTTPException(404, f"Không có giọng '{body.voice}'.")
+            voice_age.set_preset(e.id, body.voice, body.age)
+    except (voice_age.AgeError, library.LibraryError) as ex:
+        raise HTTPException(400, str(ex)) from ex
+    except library.NotFound:
+        raise HTTPException(404, "Không tìm thấy giọng trong thư viện.") from None
+    return {"engine": body.engine, "voice": body.voice, "age": body.age}
 
 
 @app.post("/api/favorites")
@@ -511,6 +544,7 @@ async def mix_save(
     gender: str = Form(""),
     region: str = Form(""),
     description: str = Form(""),
+    age: str = Form(""),
     engine: str = Form("vieneu"),
     variant: str = Form("C"),
 ):
@@ -538,6 +572,7 @@ async def mix_save(
             gender=gender,
             region=region,
             description=description,
+            age=age,
         )
     except library.LibraryError as ex:
         raise HTTPException(400, str(ex)) from ex
@@ -560,6 +595,7 @@ async def library_add(
     gender: str = Form(""),
     region: str = Form(""),
     description: str = Form(""),
+    age: str = Form(""),
     consent: bool = Form(False),
     ref_audio: UploadFile = File(...),
 ):
@@ -573,6 +609,7 @@ async def library_add(
         gender=gender,
         region=region,
         description=description,
+        age=age,
     )
     return lib_entry(meta)
 
@@ -585,6 +622,7 @@ def library_patch(
     gender: str | None = Form(None),
     region: str | None = Form(None),
     description: str | None = Form(None),
+    age: str | None = Form(None),
     favorite: bool | None = Form(None),
 ):
     try:
@@ -596,6 +634,7 @@ def library_patch(
                 gender=gender,
                 region=region,
                 description=description,
+                age=age,
                 favorite=favorite,
             )
         )
@@ -1083,7 +1122,7 @@ def book_voices(book: dict):
     c = book.get("cast") or {}
     if c.get("enabled") and c.get("roles"):
         voices = {r["id"]: [_one_voice(v) for v in r["voices"]] for r in c["roles"]}
-        return narr, cast.Cast(c["roles"], voices, default)
+        return narr, cast.Cast(cast.effective_roles(c)[0], voices, default)
     return narr, default
 
 
@@ -1123,6 +1162,23 @@ async def books_sample(book_id: str, n: int, use_lexicon: bool = True):
     )
 
 
+class ParseCharactersIn(BaseModel):
+    text: str
+
+
+@app.post("/api/cast/parse-characters")
+def cast_parse_characters(body: ParseCharactersIn):
+    """Đọc nhiều dòng "Tên - giới tính - tuổi" → {characters, errors}; lỗi theo từng dòng (thiếu giới tính / tuổi không được đoán).
+    Không lưu gì: giao diện cho người dùng xem rồi mới lưu cùng dàn giọng (PATCH cast)."""
+    if len(body.text) > 50_000:
+        raise HTTPException(400, "Danh sách quá dài.")
+    try:
+        chars, errors = cast.parse_characters(body.text)
+    except cast.CastError as ex:
+        raise HTTPException(400, str(ex)) from ex
+    return {"characters": chars, "errors": errors}
+
+
 class CastPreviewIn(BaseModel):
     cast: dict | None = None  # bản đang sửa (chưa lưu); không gửi = dàn giọng đã lưu của truyện
     chapters: list[int] | None = None  # mặc định 5 chương đầu
@@ -1142,6 +1198,7 @@ async def books_cast_preview(book_id: str, body: CastPreviewIn | None = None):
         )
     except cast.CastError as ex:
         raise HTTPException(400, str(ex)) from ex
+    roles, lost = cast.effective_roles(spec)
     ns = body.chapters or [c["n"] for c in books.list_chapters(book_id)[:5]]
     if len(ns) > 30:
         raise HTTPException(400, "Xem thử tối đa 30 chương một lần.")
@@ -1161,7 +1218,7 @@ async def books_cast_preview(book_id: str, body: CastPreviewIn | None = None):
             txt = lexicon.apply(
                 narrate.join_paras(books.paragraphs(book, meta, text)), book.get("lexicon"), glex
             )
-            for rid, line, ctx in cast.analyze(narrate.split_text(txt), spec["roles"]):
+            for rid, line, ctx in cast.analyze(narrate.split_text(txt), roles):
                 e = per[rid]
                 e["lines"] += 1
                 if len(e["samples"]) < 3:
@@ -1171,6 +1228,7 @@ async def books_cast_preview(book_id: str, body: CastPreviewIn | None = None):
             "roles": [per[r["id"]] for r in spec["roles"]],
             "unmatched": per[None],
             "dialogue_lines": sum(e["lines"] for e in per.values()),
+            "unassigned_characters": [c["name"] for c in lost],
         }
 
     return await anyio.to_thread.run_sync(work)

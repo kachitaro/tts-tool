@@ -81,7 +81,9 @@ details.adv > .adv-body { margin-top: 14px; }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
 .drop .big { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
 .filechip { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; background: var(--surface); }
-.chlist { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.chlist { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }   /* không overflow:hidden: nó cắt menu ⋯ của từng chương */
+.chlist > :first-child { border-top-left-radius: 13px; border-top-right-radius: 13px; }
+.chlist > :last-child { border-bottom-left-radius: 13px; border-bottom-right-radius: 13px; }
 .chrow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
 .chrow:first-child { border-top: 0; }
 .chrow .name { flex: 1; min-width: 0; }
@@ -306,3 +308,10 @@ kbd { font: inherit; font-size: var(--fs-sm); border: 1px solid var(--line); bor
 .castprev { padding: 8px 0; border-top: 1px solid var(--line); }
 .castprev:first-of-type { border-top: 0; }
 .castprev .ellip { margin-top: 2px; }
+.charrow { display: grid; grid-template-columns: minmax(120px, 2fr) 90px 90px minmax(150px, 2fr) auto; gap: 8px; align-items: center; }
+.charrow input, .charrow select { width: 100%; min-width: 0; }
+.charhead { font-size: var(--fs-sm); }
+#castPaste { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+@media (max-width: 640px) { .charrow { grid-template-columns: 1fr 1fr; } .charhead { display: none; } }
+
+.menu > .pop.up { top: auto; bottom: calc(100% + 6px); }

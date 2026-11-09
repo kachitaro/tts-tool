@@ -569,14 +569,24 @@ class Ctx:
             ev.append({"chapter": self.chapter, "title": self.title, "key": key, "before": before, "after": after})
 
 
+DUP_MIN_CHARS = 30   # dòng ngắn hơn ngần này không bao giờ bị coi là dòng lặp (thoại ngắn "– Vâng." lặp rất nhiều)
+_DIALOGUE_START = ("–", "—", "―", "‒", "-", "“", "«", "「", "『", '"')
+
+
+def dup_protected(line: str) -> bool:
+    """Dòng thoại (bắt đầu bằng gạch thoại hoặc ngoặc kép) hoặc dòng ngắn: quy tắc "dòng trùng lặp" không được xoá."""
+    s = line.strip()
+    return len(s) < DUP_MIN_CHARS or s.startswith(_DIALOGUE_START)
+
+
 def boilerplate_lines(chapters: list[Raw]) -> set[str]:
-    """Dòng dài (≥ 20 ký tự) xuất hiện ở ≥ max(3, nửa số chương) chương: đầu/cuối trang của web truyện."""
+    """Dòng dài (≥ 30 ký tự, không phải thoại) xuất hiện ở ≥ max(3, nửa số chương) chương: đầu/cuối trang của web truyện."""
     n = len(chapters)
     if n < 3:
         return set()
     seen: dict[str, int] = {}
     for ch in chapters:
-        for line in {l.strip() for l in ch.lines if len(l.strip()) >= 20}:
+        for line in {l.strip() for l in ch.lines if not dup_protected(l)}:
             seen[line] = seen.get(line, 0) + 1
     need = max(3, math.ceil(n / 2))
     return {l for l, c in seen.items() if c >= need}
@@ -620,7 +630,7 @@ def clean_lines(lines: list[str], cfg: dict, ctx: Ctx, boiler: set[str]) -> list
     if rules["dup_lines"]:  # dòng dài liền nhau giống hệt nhau
         dedup: list[str] = []
         for s in out:
-            if s and len(s) >= 12 and dedup and dedup[-1] == s and not ctx.keep("dup_lines", s):
+            if s and not dup_protected(s) and dedup and dedup[-1] == s and not ctx.keep("dup_lines", s):
                 ctx.hit("dup_lines", s, s); continue
             dedup.append(s)
         out = dedup

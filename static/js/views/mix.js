@@ -7,7 +7,7 @@ import { VoicePicker, keyOf, displayName, metaLine, previewVoice } from "../voic
 import { skeleton, showError, toast, modal } from "../ui.js";
 import { play } from "../player.js";
 import { go } from "../router.js";
-import { choiceSeg, GENDERS, REGIONS } from "./voice-add.js";
+import { choiceSeg, GENDERS, REGIONS, AGES } from "./voice-add.js";
 
 const SAMPLE = "Xin chào, đây là giọng đọc vừa được pha. Bạn nghe thử xem có hợp không nhé.";
 
@@ -72,7 +72,7 @@ export function mountMix(root) {
 
   function saveDialog() {
     const same = (x, y) => (x && x === y ? x : "");
-    const F = { name: `${displayName(S.a)} × ${displayName(S.b)}`.slice(0, 60), gender: same(S.a.gender, S.b.gender), region: same(S.a.region, S.b.region), tags: "", description: "", err: "", busy: false };
+    const F = { name: `${displayName(S.a)} × ${displayName(S.b)}`.slice(0, 60), gender: same(S.a.gender, S.b.gender), region: same(S.a.region, S.b.region), age: "", tags: "", description: "", err: "", busy: false };
     const box = h("div", {});
     const m = modal(box);
     const drawSave = () => box.replaceChildren(
@@ -80,6 +80,7 @@ export function mountMix(root) {
       h("div", { class: "stack" },
         h("div", {}, h("label", { class: "field", for: "mxName" }, "Tên giọng mới"), h("input", { id: "mxName", type: "text", maxlength: 60, value: F.name, oninput: (e) => { F.name = e.target.value; } })),
         h("div", { class: "two" }, choiceSeg("Giọng nam hay nữ?", GENDERS, () => F.gender, (x) => { F.gender = x; }), choiceSeg("Giọng vùng nào?", REGIONS, () => F.region, (x) => { F.region = x; })),
+        choiceSeg("Giọng nghe bao nhiêu tuổi?", AGES, () => F.age, (x) => { F.age = x; }),
         F.err && h("div", { class: "notice err", role: "alert" }, F.err)),
       h("div", { class: "row end", style: "margin-top:18px" },
         h("button", { type: "button", class: "btn", onclick: () => m.close() }, "Huỷ"),
@@ -89,7 +90,7 @@ export function mountMix(root) {
       F.busy = true; drawSave();
       const fd = new FormData();
       fd.append("engine", E.id); fd.append("voice_a", S.a.id); fd.append("voice_b", S.b.id); fd.append("slider", String((100 - S.pos) / 100));
-      fd.append("name", F.name.trim()); fd.append("gender", F.gender); fd.append("region", F.region); fd.append("tags", "pha");
+      fd.append("name", F.name.trim()); fd.append("gender", F.gender); fd.append("region", F.region); fd.append("age", F.age); fd.append("tags", "pha");
       try {
         const meta = await (await api("/api/mix/save", { method: "POST", body: fd })).json();
         resetVoices(); m.close();

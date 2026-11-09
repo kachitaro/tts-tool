@@ -10,6 +10,7 @@ import { canRecord } from "../appenv.js";
 
 const GENDERS = [["", "Không rõ"], ["nam", "Nam"], ["nữ", "Nữ"]];
 const REGIONS = [["", "Không rõ"], ["bac", "Bắc"], ["trung", "Trung"], ["nam", "Nam"]];
+const AGES = [["", "Không rõ"], ["tre", "Trẻ"], ["trung_nien", "Trung niên"], ["gia", "Già"]];
 
 /** Nhóm nút chọn một trong vài giá trị (dùng cho giới tính, vùng miền). */
 export function choiceSeg(label, options, get, set) {
@@ -18,11 +19,11 @@ export function choiceSeg(label, options, get, set) {
   paint();
   return h("div", {}, h("label", { class: "field" }, label), box);
 }
-export { GENDERS, REGIONS };
+export { GENDERS, REGIONS, AGES };
 
 export function openAddVoice({ engines, onSaved }) {
   const clonable = Object.entries(engines).map(([id, e]) => ({ ...e, id })).filter((e) => e.available && e.capabilities && e.capabilities.clone);   // /api/engines là bảng theo id
-  const S = { file: null, url: "", info: null, name: "", gender: "", region: "", tags: "", description: "", consent: false, engine: clonable[0] && clonable[0].id, rec: null, recSec: 0, busy: false, err: "" };
+  const S = { file: null, url: "", info: null, name: "", gender: "", region: "", age: "", tags: "", description: "", consent: false, engine: clonable[0] && clonable[0].id, rec: null, recSec: 0, busy: false, err: "" };
   const box = h("div", {});
   const m = modal(box, { wide: true, onclose: () => { if (S.rec) S.rec.stop(); if (S.url) URL.revokeObjectURL(S.url); } });
 
@@ -89,7 +90,7 @@ export function openAddVoice({ engines, onSaved }) {
     if (!S.consent) { S.err = "Hãy tick xác nhận bạn là chủ giọng nói hoặc đã được người đó đồng ý."; return draw(); }
     S.busy = true; draw();
     const fd = new FormData();
-    fd.append("name", S.name.trim()); fd.append("gender", S.gender); fd.append("region", S.region);
+    fd.append("name", S.name.trim()); fd.append("gender", S.gender); fd.append("region", S.region); fd.append("age", S.age);
     fd.append("tags", S.tags); fd.append("description", S.description.trim());
     fd.append("engine", S.engine); fd.append("consent", "true"); fd.append("ref_audio", S.file);
     try {
@@ -106,6 +107,7 @@ export function openAddVoice({ engines, onSaved }) {
         h("div", {}, h("label", { class: "field", for: "vName" }, "Tên giọng"),
           h("input", { id: "vName", type: "text", maxlength: 60, value: S.name, placeholder: "Ví dụ: Giọng của mẹ", oninput: (e) => { S.name = e.target.value; } })),
         h("div", { class: "two" }, choiceSeg("Giọng nam hay nữ?", GENDERS, () => S.gender, (v) => { S.gender = v; }), choiceSeg("Giọng vùng nào?", REGIONS, () => S.region, (v) => { S.region = v; })),
+        choiceSeg("Giọng nghe bao nhiêu tuổi?", AGES, () => S.age, (v) => { S.age = v; }),
         h("label", { class: "check" }, h("input", { type: "checkbox", checked: S.consent, onchange: (e) => { S.consent = e.target.checked; if (S.consent && S.err.startsWith("Hãy tick")) { S.err = ""; box.querySelector("[role=alert]")?.remove(); } } }),
           h("span", {}, h("b", {}, "Tôi là chủ giọng nói này hoặc đã được người đó đồng ý."), h("br"), h("span", { class: "muted" }, "Đừng nhân bản giọng người khác khi chưa được phép."))),
         h("details", { class: "adv", style: "margin:0" }, h("summary", {}, "Nâng cao"), h("div", { class: "adv-body stack", style: "--gap:10px" },
