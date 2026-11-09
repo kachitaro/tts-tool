@@ -28,12 +28,14 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 import anyio
 import numpy as np
 import soundfile as sf
 
 import books
+import cast
 import dialogue
 import lexicon
 import library
@@ -97,6 +99,28 @@ def bench_rate(engine_id: str) -> tuple[float, str] | None:
         return None
 
 
+def _dlg_key(dlg: Any, speed: int) -> Any:
+    """Phần giọng lời thoại của chữ ký: một giọng, hoặc cả dàn giọng (luật gán vai + giọng của từng vai)."""
+    if dlg is None:
+        return None
+    if isinstance(dlg, cast.Cast):
+        return {
+            "default": dialogue.line_key(dlg.default[0], dlg.default[1], "", speed)
+            if dlg.default
+            else None,
+            "roles": [
+                {
+                    "id": r["id"],
+                    "names": r["names"],
+                    "keywords": r["keywords"],
+                    "voices": [dialogue.line_key(e, v, "", speed) for e, v in dlg.voices[r["id"]]],
+                }
+                for r in dlg.roles
+            ],
+        }
+    return dialogue.line_key(dlg[0], dlg[1], "", speed)
+
+
 def signature(book: dict, narr: tuple, dlg: tuple | None, glex: list[dict]) -> str:
     """Cấu hình ảnh hưởng tới audio (giọng, tốc độ, chuẩn hoá, từ điển, đọc tiêu đề, các mức nghỉ, mode/precision của model — hai thứ
     sau nằm trong line_key qua cache_tag): đổi thì audio cũ lỗi thời."""
@@ -104,7 +128,7 @@ def signature(book: dict, narr: tuple, dlg: tuple | None, glex: list[dict]) -> s
     pp, tp = books.pauses(book)
     parts = {
         "n": dialogue.line_key(narr[0], narr[1], "", speed),
-        "d": dialogue.line_key(dlg[0], dlg[1], "", speed) if dlg else None,
+        "d": _dlg_key(dlg, speed),
         "norm": bool(book["normalize"]),
         "lex": book.get("lexicon") or [],
         "glex": glex,

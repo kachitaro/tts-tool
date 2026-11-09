@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 
+import cast as castmod
 import dialogue
 import lexicon
 
@@ -267,11 +268,20 @@ def units(text: str, narr: tuple, dlg: tuple | None, normalize: bool, book_lex: 
           global_lex: list[dict] | None = None, piece_chars: int = PIECE_CHARS) -> list[Unit]:
     """Từ điển → (tuỳ chọn) tách lời thoại → từng run → plan (thẻ nghỉ) → mảnh ≤ piece_chars. Raise ValueError (thẻ nghỉ sai)."""
     text = lexicon.apply(text, book_lex, global_lex)
-    chunks = runs(split_text(text)) if dlg else [Run("narr", text, False)]
+    if isinstance(dlg, castmod.Cast):   # dàn giọng nhân vật: mỗi vai một giọng
+        lines = dlg.tag(split_text(text))
+    else:
+        lines = split_text(text) if dlg else None
+    chunks = runs(lines) if lines is not None else [Run("narr", text, False)]
     out: list[Unit] = []
     prev_ends_pause = False
     for ri, r in enumerate(chunks):
-        engine, voice = dlg if r.kind == "dlg" else narr
+        if r.kind == "narr":
+            engine, voice = narr
+        elif isinstance(dlg, castmod.Cast):
+            engine, voice = dlg.voice_for(r.kind, narr)
+        else:
+            engine, voice = dlg
         plan = dialogue.make_plan(engine, r.text, normalize)
         if plan == [("text", "")]:
             continue

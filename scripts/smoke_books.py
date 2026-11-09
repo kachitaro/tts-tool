@@ -461,6 +461,178 @@ def t_dialogue_voice_api() -> None:
     j(client.patch(f"{B}/api/books/{bid}", json={"dialogue_voice": {"enabled": False, "engine": "vieneu", "voice": "Trúc Ly"}}))
 
 
+def t_cast_api() -> None:
+    """Dàn giọng nhân vật: kiểm tra đầu vào, xem thử luật gán vai, thứ tự giọng theo vai, chữ ký đổi, audio đổi khi đổi vai."""
+    import bookq
+    import cast as castmod
+
+    story = (
+        "Chương 1: Gặp gỡ\n"
+        "Trần Bình An nói: “Con đi đây, xin mọi người ở lại mạnh khỏe nhé.”\n"
+        "– Đi đâu mà vội thế? – lão giả hỏi.\n"
+        "– Ra ngoài trấn mua ít đồ dùng cho mùa đông sắp tới.\n"
+        "“Em muốn đi cùng,” Ninh Diêu nói. Tiểu Linh đáp: “Chị cũng vậy.”\n"
+        "Gió thổi qua mái nhà cũ kỹ, không ai nói thêm điều gì nữa.\n"
+    )
+    d = j(
+        client.post(
+            f"{B}/api/books/import",
+            files=[("files", ("c.txt", story.encode(), "text/plain"))],
+            data={"title": "Dàn giọng smoke"},
+        )
+    )
+    bid = d["id"]
+    j(client.post(f"{B}/api/books/{bid}/chapters", json={}))
+    V = lambda name: {"engine": "vieneu", "voice": name}  # noqa: E731
+    roles = [
+        {"name": "Nam chính", "voices": [V("Adam bựa")], "names": ["Trần Bình An"], "keywords": []},
+        {
+            "name": "Lão giả",
+            "voices": [V("Thiện Minh")],
+            "names": [],
+            "keywords": ["lão giả", "ông cụ"],
+        },
+        {
+            "name": "Thiếu nữ",
+            "voices": [V("Trúc Ly"), V("Mai Anh")],
+            "names": ["Ninh Diêu", "Tiểu Linh"],
+            "keywords": ["thiếu nữ"],
+        },
+    ]
+    # đầu vào sai
+    for bad in (
+        {"enabled": True, "roles": [{"name": "", "voices": [V("Trúc Ly")]}]},
+        {"enabled": True, "roles": [{"name": "A", "voices": []}]},
+        {"enabled": True, "roles": [{"name": "A", "voices": [V("Trúc Ly")] * 5}]},
+        {
+            "enabled": True,
+            "roles": [{"name": "A", "voices": [V("Trúc Ly")], "names": "không phải danh sách"}],
+        },
+        {
+            "enabled": True,
+            "roles": [{"name": f"A{i}", "voices": [V("Trúc Ly")]} for i in range(21)],
+        },
+    ):
+        assert client.patch(f"{B}/api/books/{bid}", json={"cast": bad}).status_code == 400, bad
+    assert (
+        client.patch(
+            f"{B}/api/books/{bid}",
+            json={
+                "cast": {
+                    "enabled": True,
+                    "roles": [
+                        {"name": "A", "voices": [{"engine": "vieneu", "voice": "lib:khong-co"}]}
+                    ],
+                }
+            },
+        ).status_code
+        == 404
+    )
+    assert client.patch(
+        f"{B}/api/books/{bid}",
+        json={
+            "cast": {
+                "enabled": True,
+                "roles": [{"name": "A", "voices": [{"engine": "khong-co", "voice": "x"}]}],
+            }
+        },
+    ).status_code in (400, 404)
+    assert "cast" not in j(client.get(f"{B}/api/books/{bid}")), (
+        "lưu sai không được để lại dàn giọng"
+    )
+    saved = j(
+        client.patch(f"{B}/api/books/{bid}", json={"cast": {"enabled": True, "roles": roles}})
+    )["cast"]
+    assert saved["enabled"] and [r["name"] for r in saved["roles"]] == [
+        "Nam chính",
+        "Lão giả",
+        "Thiếu nữ",
+    ], saved
+    ids = [r["id"] for r in saved["roles"]]
+    assert len(set(ids)) == 3, ids
+    # xem thử: mỗi câu thoại về đúng vai; câu không có phần dẫn → chưa nhận ra
+    pv = j(client.post(f"{B}/api/books/{bid}/cast/preview", json={}))
+    got = {r["name"]: r["lines"] for r in pv["roles"]}
+    assert (
+        got == {"Nam chính": 1, "Lão giả": 1, "Thiếu nữ": 2}
+        and pv["unmatched"]["lines"] == 1
+        and pv["dialogue_lines"] == 5
+    ), pv
+    assert pv["roles"][1]["samples"][0]["tag"] == "lão giả hỏi." and pv["unmatched"]["samples"][0][
+        "text"
+    ].startswith("Ra ngoài trấn"), pv
+    # xem thử bản nháp chưa lưu: bỏ từ khoá "lão giả" thì thoại đó về chưa nhận ra
+    draft = {"roles": [{**roles[1], "keywords": ["ông cụ"]}]}
+    pv2 = j(client.post(f"{B}/api/books/{bid}/cast/preview", json={"cast": draft, "chapters": [1]}))
+    assert pv2["roles"][0]["lines"] == 0 and pv2["unmatched"]["lines"] == 5, (
+        pv2
+    )  # bản nháp chỉ có một vai, bỏ "lão giả"
+    assert (
+        client.post(f"{B}/api/books/{bid}/cast/preview", json={"chapters": [99]}).status_code == 404
+    )
+    assert (
+        client.post(
+            f"{B}/api/books/{bid}/cast/preview",
+            json={"cast": {"roles": [{"name": "A", "voices": []}]}},
+        ).status_code
+        == 400
+    )
+    # thứ tự giọng theo vai: mỗi tên nhân vật cố định một giọng, xoay vòng
+    eng = ENGINES["vieneu"]
+    spec = castmod.validate({"enabled": True, "roles": roles})
+    cst = castmod.Cast(
+        spec["roles"],
+        {r["id"]: [(eng, v["voice"]) for v in r["voices"]] for r in spec["roles"]},
+        default=None,
+    )
+    narr = (eng, "Hải Đăng")
+    text = (
+        "Trần Bình An nói: “Con đi đây, xin mọi người ở lại mạnh khỏe nhé.”\n“Em muốn đi cùng,” Ninh Diêu nói.\n"
+        "“Chị cũng vậy,” Tiểu Linh đáp.\nKhông ai nói gì: “Câu thoại không rõ ai nói đây nhé các bạn.”"
+    )
+    seq = [
+        u.voice
+        for u in narrate.units(text, narr, cst, False)
+        if u.kind == "text" and u.text.strip()
+    ]
+    assert (
+        seq[0] == "Hải Đăng" and "Adam bựa" in seq and seq.index("Trúc Ly") < seq.index("Mai Anh")
+    ), seq  # Ninh Diêu = giọng 1, Tiểu Linh = giọng 2
+    assert seq[-1] == "Hải Đăng", seq  # không nhận ra vai → giọng kể (không bật thoại chung)
+    cst2 = castmod.Cast(spec["roles"], cst.voices, default=(eng, "Quang Sơn"))
+    seq2 = [
+        u.voice
+        for u in narrate.units(text, narr, cst2, False)
+        if u.kind == "text" and u.text.strip()
+    ]
+    assert seq2[-1] == "Quang Sơn", seq2  # thoại chung dùng giọng lời thoại
+    # chữ ký: đổi luật / giọng của vai → chương cũ lỗi thời; giống nhau thì giữ nguyên
+    book = j(client.get(f"{B}/api/books/{bid}"))
+    sig = lambda c: bookq.signature(book, narr, c, [])  # noqa: E731
+    base = sig(cst)
+    assert (
+        base == sig(castmod.Cast(spec["roles"], cst.voices, default=None))
+        and base != sig(None)
+        and base != sig(cst2)
+    )
+    spec3 = castmod.validate(
+        {"enabled": True, "roles": [{**roles[0], "names": ["Trần Bình An", "Bình An"]}, *roles[1:]]}
+    )
+    assert base != sig(castmod.Cast(spec3["roles"], cst.voices))
+    # audio thật: đổi giọng của vai thì audio đổi; tắt dàn giọng thì khác bật
+    line = {
+        "text": "Lão giả nói: “Đi thôi nào, chúng ta về nhà ngay bây giờ.”",
+        "use_lexicon": False,
+    }
+    on = client.post(f"{B}/api/books/{bid}/speak", json=line)
+    wav_seconds(on)
+    j(client.patch(f"{B}/api/books/{bid}", json={"cast": {"enabled": False, "roles": roles}}))
+    off = client.post(f"{B}/api/books/{bid}/speak", json=line)
+    wav_seconds(off)
+    assert on.content != off.content, "bật dàn giọng mà audio không đổi"
+    j(client.delete(f"{B}/api/books/{bid}"))
+
+
 def t_cleanup_names() -> None:
     j(client.delete(f"{B}/api/books/{state['names']}"))
 
@@ -940,6 +1112,7 @@ for name, fn in [
     ("API: 6b gợi ý tên riêng (400 khi chưa tách chương, bỏ cụm đã có)", t_suggest_api),
     ("API: 6b mục từ điển nghỉ trước 1s làm audio dài thêm ~1s", t_pause_entry_lengthens),
     ("API: 6b giọng thứ hai cho lời thoại đổi audio, giọng không tồn tại → 404", t_dialogue_voice_api),
+    ("API: dàn giọng nhân vật — kiểm tra đầu vào, xem thử gán vai, giọng theo vai, chữ ký, audio đổi", t_cast_api),
     ("API: 6c Đọc thử 1 phút qua hàng đợi (job có tiến độ, chars/offset, lỗi đầu vào)", t_trial_read),
     ("API: dọn truyện thử của 6b", t_cleanup_names),
     ("API: nhập nhiều .txt → mỗi file một chương, sắp xếp tự nhiên", t_multi_files),

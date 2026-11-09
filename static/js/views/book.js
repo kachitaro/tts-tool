@@ -10,6 +10,7 @@ import { Pager, PAGE_SIZE } from "../pager.js";
 import { askNotifyPermission } from "../overview.js";
 import { getBook, chaptersOf, queueOf, runQueue, startTrial, dismissTrial, trial, deleteBook } from "../bookapi.js";
 import { mountNamesTab } from "./book-names.js";
+import { mountCastTab } from "./book-cast.js";
 import { mountSettingsTab } from "./book-settings.js";
 
 const fmtN = (n) => Number(n).toLocaleString("vi-VN");
@@ -131,12 +132,13 @@ export function mountBook(root, { id }) {
 
   // ───── thẻ phụ ─────
   function paintTabs() {
-    tabs.replaceChildren(h("div", { class: "tabs", role: "tablist" }, ...[["chuong", "Các chương"], ["ten", "Cách đọc tên riêng"], ["caidat", "Cài đặt"]].map(([k, t]) =>
+    tabs.replaceChildren(h("div", { class: "tabs", role: "tablist" }, ...[["chuong", "Các chương"], ["ten", "Cách đọc tên riêng"], ["dan", "Dàn giọng"], ["caidat", "Cài đặt"]].map(([k, t]) =>
       h("button", { type: "button", role: "tab", "aria-selected": String(ts.tab === k), class: ts.tab === k ? "on" : "", onclick: () => { ts.tab = k; paintTabs(); } }, t))));
     if (tabCleanup) { tabCleanup(); tabCleanup = null; }
     content.replaceChildren();
     if (ts.tab === "chuong") paintChapters();
     else if (ts.tab === "ten") tabCleanup = mountNamesTab(content, { id, book, onChanged: () => refresh(true) });
+    else if (ts.tab === "dan") tabCleanup = mountCastTab(content, { id, book, onChanged: () => refresh(true) });
     else tabCleanup = mountSettingsTab(content, { id, book, q, onChanged: async () => { await reloadBook(); await refresh(true); } });
   }
   async function reloadBook() { book = await getBook(id); }

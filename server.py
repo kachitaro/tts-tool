@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 import bookq
 import books
+import cast
 import dialogue
 import exporter
 import history
@@ -858,6 +859,7 @@ class BookPatch(BaseModel):
     exceptions: list[dict] | None = None
     lexicon: list[dict] | None = None
     dialogue_voice: dict | None = None
+    cast: dict | None = None  # dàn giọng nhân vật (cast.py): {"enabled", "roles": [...]}
     dismiss_trial: bool | None = None  # "Để sau" trên banner tạo thử: bỏ book["trial"]
 
 
@@ -977,6 +979,8 @@ def books_patch(book_id: str, body: BookPatch):
             book["lexicon"] = lexicon.validate(body.lexicon)
         if body.dismiss_trial:
             book.pop("trial", None)
+        if body.cast is not None:
+            book["cast"] = checked_cast(body.cast)
         if body.dialogue_voice is not None:
             dv = body.dialogue_voice
             e = get_engine(str(dv.get("engine", "")))
@@ -986,7 +990,7 @@ def books_patch(book_id: str, body: BookPatch):
                 "engine": e.id,
                 "voice": str(dv["voice"]),
             }
-    except (books.BookError, lexicon.LexiconError) as ex:
+    except (books.BookError, lexicon.LexiconError, cast.CastError) as ex:
         raise HTTPException(400, str(ex)) from ex
     books.save(book)
     return book
@@ -1052,16 +1056,35 @@ def books_chapter(book_id: str, n: int):
     return {**meta, "text": body, "reading_text": books.reading_text(book, meta, body)}
 
 
+def _one_voice(v: dict) -> tuple:
+    e = get_engine(v["engine"])
+    check_lib_voice(e, v["voice"])
+    return e, v["voice"]
+
+
+def checked_cast(spec: dict) -> dict:
+    """Chuẩn hoá dàn giọng + kiểm tra từng giọng (engine đã cài, giọng thư viện còn tồn tại). Raise HTTPException / CastError."""
+    c = cast.validate(spec)
+    for r in c["roles"]:
+        for v in r["voices"]:
+            e = get_engine(v["engine"])
+            check_lib_voice(e, v["voice"])
+            v["engine"] = e.id
+    return c
+
+
 def book_voices(book: dict):
-    """(giọng kể, giọng lời thoại hoặc None) dạng (engine, voice); kiểm tra engine + giọng thư viện."""
-
-    def one(v: dict):
-        e = get_engine(v["engine"])
-        check_lib_voice(e, v["voice"])
-        return e, v["voice"]
-
+    """(giọng kể, giọng lời thoại hoặc None) dạng (engine, voice); kiểm tra engine + giọng thư viện.
+    Truyện bật dàn giọng nhân vật (book["cast"]) thì phần thứ hai là một cast.Cast: thoại nhận ra vai dùng giọng của vai,
+    còn lại dùng giọng lời thoại chung (nếu bật) hoặc giọng kể."""
     dv = book.get("dialogue_voice") or {}
-    return one(book["voice"]), (one(dv) if dv.get("enabled") else None)
+    narr = _one_voice(book["voice"])
+    default = _one_voice(dv) if dv.get("enabled") else None
+    c = book.get("cast") or {}
+    if c.get("enabled") and c.get("roles"):
+        voices = {r["id"]: [_one_voice(v) for v in r["voices"]] for r in c["roles"]}
+        return narr, cast.Cast(c["roles"], voices, default)
+    return narr, default
 
 
 async def speak_book(book: dict, text: str, use_lexicon: bool = True) -> tuple[bytes, float]:
@@ -1098,6 +1121,59 @@ async def books_sample(book_id: str, n: int, use_lexicon: bool = True):
         media_type="audio/wav",
         headers={"X-Sample-Seconds": f"{seconds:.1f}", "X-Sample-Chars": str(len(text))},
     )
+
+
+class CastPreviewIn(BaseModel):
+    cast: dict | None = None  # bản đang sửa (chưa lưu); không gửi = dàn giọng đã lưu của truyện
+    chapters: list[int] | None = None  # mặc định 5 chương đầu
+
+
+@app.post("/api/books/{book_id}/cast/preview")
+async def books_cast_preview(book_id: str, body: CastPreviewIn | None = None):
+    """Xem thử luật gán vai trên một vài chương: mỗi vai có bao nhiêu câu thoại + vài ví dụ (kèm phần dẫn), và số câu thoại chưa nhận ra
+    vai. Chạy đúng như lúc dựng audio (từ điển trước, rồi tách thoại), không tạo audio, không cần giọng còn dùng được."""
+    body = body or CastPreviewIn()
+    book = book_or_404(book_id)
+    if book["status"] != "ready":
+        raise HTTPException(400, "Hãy tách chương trước.")
+    try:
+        spec = cast.validate(
+            body.cast if body.cast is not None else (book.get("cast") or {"roles": []})
+        )
+    except cast.CastError as ex:
+        raise HTTPException(400, str(ex)) from ex
+    ns = body.chapters or [c["n"] for c in books.list_chapters(book_id)[:5]]
+    if len(ns) > 30:
+        raise HTTPException(400, "Xem thử tối đa 30 chương một lần.")
+    glex = lexicon.load_global()
+
+    def work() -> dict:
+        per: dict[str | None, dict] = {
+            r["id"]: {"id": r["id"], "name": r["name"], "lines": 0, "samples": []}
+            for r in spec["roles"]
+        }
+        per[None] = {"id": None, "name": "Chưa nhận ra vai", "lines": 0, "samples": []}
+        for n in ns:
+            try:
+                meta, text = books.chapter_text(book_id, n)
+            except books.NotFound:
+                raise HTTPException(404, f"Không có chương {n}.") from None
+            txt = lexicon.apply(
+                narrate.join_paras(books.paragraphs(book, meta, text)), book.get("lexicon"), glex
+            )
+            for rid, line, ctx in cast.analyze(narrate.split_text(txt), spec["roles"]):
+                e = per[rid]
+                e["lines"] += 1
+                if len(e["samples"]) < 3:
+                    e["samples"].append({"chapter": n, "text": line[:160], "tag": ctx[:160]})
+        return {
+            "chapters": ns,
+            "roles": [per[r["id"]] for r in spec["roles"]],
+            "unmatched": per[None],
+            "dialogue_lines": sum(e["lines"] for e in per.values()),
+        }
+
+    return await anyio.to_thread.run_sync(work)
 
 
 class SpeakIn(BaseModel):

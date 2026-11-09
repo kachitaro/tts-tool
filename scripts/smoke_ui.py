@@ -317,9 +317,16 @@ async def run(pg: Page, bid: str) -> None:
             None,
         ),
         (
+            "tab Dàn giọng (mẫu 7 vai + kiểm tra)",
+            f"/sach/{bid}",
+            "(async () => { [...document.querySelectorAll('.tabs button')][2].click(); await new Promise(r => setTimeout(r, 800)); [...document.querySelectorAll('.btn')].find(b => b.textContent === 'Dùng mẫu 7 vai').click(); await new Promise(r => setTimeout(r, 300)); document.querySelector('#castCheck').click(); })()",
+            "document.querySelectorAll('.castrole').length === 7 && document.querySelector('.castprev')",
+            None,
+        ),
+        (
             "tab Cài đặt của truyện",
             f"/sach/{bid}",
-            "[...document.querySelectorAll('.tabs button')][2].click()",
+            "[...document.querySelectorAll('.tabs button')][3].click()",
             "document.querySelector('#view input')",
             None,
         ),

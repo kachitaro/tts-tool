@@ -10,6 +10,14 @@ html.app-window {
   overflow: hidden;
   clip-path: inset(0 round 0 0 var(--app-radius, 15px) var(--app-radius, 15px));
 }
+/* Chừa chỗ cho trình phát bằng đệm của .page chứ không phải của body: WebKit trừ padding của phần tử cuộn khỏi vùng "sticky",
+   để ở body thì .stickyfoot (bước 3) dừng cao hơn đáy 100 px. */
+html.app-window body {
+  padding-bottom: 0;
+}
+html.app-window .page {
+  padding-bottom: calc(var(--player-h) + 64px);
+}
 html.app-window body {
   height: 100%;
   overflow-x: hidden;
