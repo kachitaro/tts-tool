@@ -1,6 +1,6 @@
 // Thử titlepattern.js: một dòng tiêu đề mẫu → mẫu tìm tiêu đề. Chạy: node tests/js/titlepattern.test.mjs
 import assert from "node:assert/strict";
-import { inferTitlePattern } from "../../static/js/titlepattern.js";
+import { inferTitlePattern } from "../../web/js/titlepattern.js";
 
 const text = [
   "Chương 1: Mở đầu", "Những dòng văn thường, không phải tiêu đề.", "Chương 2", "Chuong 3 - Gặp gỡ",

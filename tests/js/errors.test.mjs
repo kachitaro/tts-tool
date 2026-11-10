@@ -1,6 +1,6 @@
 // Thử errors.js (đổi lỗi kỹ thuật → lời thường). Chạy: node tests/js/errors.test.mjs
 import assert from "node:assert/strict";
-import { explain } from "../../static/js/errors.js";
+import { explain } from "../../web/js/errors.js";
 
 const BANNED = /\b(engine|precision|int8|fp32|alpha|slider|cache|regex|selector|seed|RTF|embedding|mode|job|queue)\b/i;
 const cases = [

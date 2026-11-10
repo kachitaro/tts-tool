@@ -1,9 +1,0 @@
-target-version = "py314"
-line-length = 100
-
-[lint]
-select = ["E", "F", "I", "B", "UP"]
-ignore = [
-  "E501",  # dòng dài: `ruff format` đã xuống dòng phần code; còn lại là chuỗi / chú thích tiếng Việt, cắt ra khó đọc hơn
-  "B008",  # FastAPI dùng Form()/File() làm giá trị mặc định tham số: đúng theo thiết kế của FastAPI
-]

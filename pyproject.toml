@@ -1,0 +1,45 @@
+# Thay cho requirements.txt, requirements-app.txt, requirements-dev.txt và ruff.toml.
+# Cài (một lần, trong .venv):  .venv/bin/python -m pip install -e ".[vieneu,app,dev]"
+#   vieneu: engine offline chất lượng cao (bỏ nếu chỉ cần edge-tts)
+#   app:    app cửa sổ riêng (cần thêm gói hệ thống GTK/WebKitGTK, xem README)
+#   dev:    ruff
+[project]
+name = "giong-viet"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "python-multipart>=0.0.9",
+  "edge-tts>=7.0",
+  "numpy",
+  "soundfile",
+  "librosa",
+  "soxr",
+]
+
+[project.optional-dependencies]
+vieneu = ["vieneu>=3.8"]
+app = ["pywebview>=6.2,<7"]
+dev = ["ruff==0.17.4"]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["giongviet*"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+  "E501",  # dòng dài: `ruff format` đã xuống dòng phần code; còn lại là chuỗi / chú thích tiếng Việt, cắt ra khó đọc hơn
+  "B008",  # FastAPI dùng Form()/File() làm giá trị mặc định tham số: đúng theo thiết kế của FastAPI
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["giongviet"]
