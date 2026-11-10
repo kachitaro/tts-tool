@@ -47,11 +47,17 @@ PAUSE_MIN, PAUSE_MAX = 0.1, 5.0
 
 
 def has_pause(text: str) -> bool:
-    return bool(PAUSE_RE.search(text))
+    """Có thẻ nghỉ HOẶC thẻ hiệu ứng âm thanh: cả hai đi qua pipeline tách đoạn (dialogue.make_plan)."""
+    import sfx  # trong hàm: sfx import library, tránh vòng
+
+    return bool(PAUSE_RE.search(text)) or sfx.has_sfx(text)
 
 
 def split_pauses(text: str) -> list[tuple[str, object]]:
-    """Tách văn bản tại các thẻ nghỉ: [("text", "..."), ("pause", giây), ...]. Raise ValueError nếu thẻ ngoài 0.1–5 giây."""
+    """Tách văn bản tại các thẻ nghỉ và thẻ hiệu ứng: [("text", "..."), ("pause", giây), ("sfx", id), ...].
+    Raise ValueError nếu thẻ nghỉ ngoài 0.1–5 giây. Thẻ lạ (vd [witch voice]) vẫn là chữ."""
+    import sfx
+
     out: list[tuple[str, object]] = []
     pos = 0
     for m in PAUSE_RE.finditer(text):
@@ -59,9 +65,9 @@ def split_pauses(text: str) -> list[tuple[str, object]]:
         if not PAUSE_MIN <= sec <= PAUSE_MAX:
             raise ValueError(f"Thẻ nghỉ phải từ {PAUSE_MIN:g} đến {PAUSE_MAX:g} giây (gặp {m.group(0)}).")
         if m.start() > pos:
-            out.append(("text", text[pos:m.start()]))
+            out.extend(sfx.split(text[pos:m.start()]))
         out.append(("pause", sec))
         pos = m.end()
     if pos < len(text):
-        out.append(("text", text[pos:]))
+        out.extend(sfx.split(text[pos:]))
     return out

@@ -5,6 +5,7 @@ import { engines, voices, prefs } from "../store.js";
 import { VoicePicker, keyOf, splitKey, kindLabel, displayName, metaLine, previewVoice } from "../voicepicker.js";
 import { skeleton, modal, showError, toast, switchEl } from "../ui.js";
 import { play } from "../player.js";
+import { tagPicker } from "../tagpicker.js";
 import { pending } from "../router.js";
 import { getSettings, effectiveDefault } from "../defaults.js";
 
@@ -62,21 +63,6 @@ export function mountRead(root) {
     }
   }
 
-  // ───── thanh chèn cảm xúc / chỗ nghỉ ─────
-  function insertBar(ta) {
-    const insert = (text) => {
-      ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, "end"); ta.focus(); ta.dispatchEvent(new Event("input"));
-    };
-    const chip = (label, text, title) => h("button", { type: "button", class: "chip", title, onclick: () => insert(text) }, label);
-    const sec = h("input", { type: "number", min: 0.1, max: 5, step: 0.1, value: 1, style: "width:80px", "aria-label": "Số giây nghỉ" });
-    return h("div", { class: "chips" },
-      ...tagsOf().map((t) => chip(t.replace(/^\[|\]$/g, ""), t, "Chèn cảm xúc " + t)),
-      chip("Ngắt nhẹ", ", ", "Chèn dấu phẩy"),
-      chip("Xuống đoạn", S.multi ? "\n\n" : "\n", "Chèn xuống dòng để nghỉ lâu hơn"),
-      h("span", { class: "row", style: "gap:6px" }, "Nghỉ", sec, "giây",
-        h("button", { type: "button", class: "chip", onclick: () => { const v = Math.round(+sec.value * 10) / 10; if (v >= 0.1 && v <= 5) insert(`[nghỉ ${v}s]`); else sec.focus(); } }, "Chèn")));
-  }
-
   // ───── khung chung ─────
   let castBox, countEl, resultBox, goBtn;
 
@@ -99,9 +85,9 @@ export function mountRead(root) {
         switchEl("Nhiều người đọc", S.multi, (on) => { S.multi = on; S.result = null; S.job = null; draw(); if (on) parseNow(); })),
       h("p", { class: "lead" }, S.multi ? "Viết lời của từng người theo dạng [Tên]: lời nói. Rồi chọn giọng cho mỗi người." : "Dán hoặc gõ văn bản vào ô bên dưới, rồi bấm Đọc."),
       h("div", { class: "reader" },
-        h("div", {}, ta, h("div", { class: "row", style: "margin-top:8px;justify-content:space-between" }, countEl,
-          h("span", { class: "muted" }, S.multi ? "Mỗi người một dòng. Dòng trống để nghỉ lâu hơn." : "Gõ Ctrl + Enter để đọc nhanh.")),
-          h("details", { class: "adv", style: "border:0;margin:6px 0 0;padding:0" }, h("summary", {}, "Thêm cảm xúc, chỗ nghỉ"), h("div", { class: "adv-body" }, insertBar(ta)))),
+        h("div", {}, ta, h("div", { class: "row", style: "margin-top:8px;justify-content:space-between" },
+          h("span", { class: "row", style: "gap:12px" }, tagPicker({ textarea: ta, emotionTags: tagsOf, multi: () => S.multi }), countEl),
+          h("span", { class: "muted" }, S.multi ? "Mỗi người một dòng. Dòng trống để nghỉ lâu hơn." : "Gõ Ctrl + Enter để đọc nhanh."))),
         S.multi ? castCard() : voiceCard(),
         h("div", { class: "row" }, goBtn),
         resultBox,

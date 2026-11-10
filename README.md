@@ -148,7 +148,7 @@ GTK nhẹ hơn 2,7 lần RAM và 540 MB ổ đĩa, dùng WebKit của hệ thố
 
 ## Dữ liệu trong `data/`
 
-`voices/<id>/` (giọng nhân bản và giọng trộn), `favorites.json`, `history/` (50 bản gần nhất), `projects/`, `cache/`, `lexicon.json` (từ điển toàn cục), `books/<id>/` (`book.json`, `source/`, `chapters/`, `audio/<nnnn>.flac`, `export/`), `queue.json` (hàng đợi bền), `settings.json` (giọng mặc định), `bench.json` (số đo của `scripts/bench_vieneu.py`).
+`voices/<id>/` (giọng nhân bản và giọng trộn), `favorites.json`, `sfx/` (hiệu ứng âm thanh), `voice_ages.json` (nhãn tuổi của giọng có sẵn), `history/` (50 bản gần nhất), `projects/`, `cache/`, `lexicon.json` (từ điển toàn cục), `books/<id>/` (`book.json`, `source/`, `chapters/`, `audio/<nnnn>.flac`, `export/`), `queue.json` (hàng đợi bền), `settings.json` (giọng mặc định), `bench.json` (số đo của `scripts/bench_vieneu.py`).
 File cấu hình sửa được, nằm trong repo: `config/name_stopwords.txt` (từ dừng của gợi ý tên riêng), `config/speech_verbs.txt` (động từ nói nhận ra phần dẫn viết hoa sau gạch thoại).
 Thư mục này không nằm trong git. Không chạy hai server cùng lúc trên một `data/` (khoá ghi chỉ có trong một tiến trình).
 
@@ -210,6 +210,37 @@ Thẻ **Dàn giọng** trong trang truyện: mỗi nhân vật hay mỗi loại 
 - **Nhãn tuổi của giọng** (`voice_age.py`): `age` = `tre` / `trung_nien` / `gia` / rỗng. Giọng tự tạo (ghi âm, pha): chọn khi thêm hoặc đổi tên, lưu trong `meta.json`. Giọng có sẵn: tool **gợi ý theo chữ phong cách** ("tự nhiên" → trẻ; "kể chuyện" / "đọc truyện" / "tin tức" → trung niên), không phải nghe giọng; bạn chỉnh ở màn Giọng đọc (menu ⋯ → Đổi độ tuổi…), lựa chọn lưu ở `data/voice_ages.json`, chọn "Dùng gợi ý" để bỏ. Bộ chọn giọng có bộ lọc Trẻ / Trung niên / Già cùng hàng với giới tính và vùng. Mẫu 7 vai chọn giọng đúng giới tính và đúng tuổi trước; chưa có giọng đúng tuổi thì lấy giọng đúng giới tính và vai hiện cảnh báo. Có nhân vật nhóm tuổi nào mà chưa giọng nào mang nhãn đó thì hiện "Chưa có giọng già…" kèm nút "Thêm giọng từ file ghi âm" / "Pha giọng mới".
 - **API thêm:** `PUT /api/voices/age` `{engine, voice, age}`; `/api/voices` và `/api/library` trả `age` (+ `age_source`: `user` | `suggested`); các form thêm / sửa / lưu giọng pha nhận thêm `age`; `POST /api/cast/parse-characters` `{text}` → `{characters, errors: [{line, text, error}]}`; `cast` của truyện nhận thêm `characters` và `slot` cho vai; kết quả `cast/preview` có `unassigned_characters`.
 - **Lưu ý:** nhãn tuổi của giọng có sẵn chưa nghe kiểm: chưa có giọng "già" thật nào trong bộ có sẵn, hãy tạo từ file ghi âm hoặc pha giọng.
+
+## Thẻ và hiệu ứng âm thanh
+
+Chèn thẻ trong ngoặc vuông vào văn bản; bấm **[ ] Chèn thẻ** dưới ô văn bản ở màn Đọc văn bản để chọn từ bảng (gõ để tìm, không cần dấu, tìm được cả tên tiếng Anh như `rain`). Con trỏ đang ở đâu thì thẻ chèn ở đó. Thẻ chạy ở Đọc văn bản, Nhiều người đọc (cả dòng chỉ có thẻ, như `[vỗ tay]`) và Làm sách nói, bằng **ghép file âm thanh vào đúng chỗ**: model (edge, VieNeu) không tự tạo được tiếng mưa hay tiếng gõ cửa.
+
+- **Cảm xúc** (`[cười]`, `[thở dài]`, `[hắng giọng]`): chỉ giọng chạy trên máy (VieNeu v3 Turbo) đọc được; giọng khác tự bỏ thẻ.
+- **Chỗ nghỉ:** `[nghỉ 0.5s]`, `[nghỉ 1s]`, `[nghỉ 2s]` (gõ tay được từ 0.1 đến 5 giây), "Ngắt nhẹ" (dấu phẩy), "Xuống đoạn".
+- **Hiệu ứng có sẵn** (tự tổng hợp bằng numpy, không tải gì từ mạng; không phân biệt hoa thường, khoảng trắng co giãn):
+
+| Thẻ | Tên tiếng Anh (cũng dùng được) |
+|---|---|
+| `[tiếng mưa]` | `rain falling`, `rain` |
+| `[tiếng sấm]` | `thunder` |
+| `[tiếng gió]` | `wind` |
+| `[tim đập]` | `heartbeat` |
+| `[gõ cửa]` | `knocking on door` |
+| `[chuông ngân]` | `bell ringing` |
+| `[tiếng chiêng]` | `gong` |
+| `[điện thoại reo]` | `phone ringing` |
+| `[trống dồn]` | `drum roll` |
+| `[gõ phím]` | `keyboard typing` |
+| `[vỗ tay]` | `applause` |
+| `[bước chân]` | `footsteps` |
+| `[tiếng kiếm]` | `sword clash` |
+| `[nổ máy]` | `engine starting` |
+
+- **Âm của bạn:** "＋ Thêm từ file" trong bảng. Tên thẻ 1–30 ký tự, không có `[ ] :`, không bắt đầu bằng "nghỉ", không trùng thẻ có sẵn, tên tiếng Anh hay thẻ cảm xúc. File dài hơn 15 giây bị cắt. Mọi âm được đưa về cùng mức: mono 48 kHz, cắt lặng hai đầu, nhỏ hơn giọng đọc (RMS 0.08 so với 0.12 của giọng).
+- **Thẻ lạ** (vd `[witch voice]`) không bị xoá: vẫn tới engine như chữ thường.
+- **API:** `GET /api/sfx` (danh sách), `GET /api/sfx/{id}/audio` (wav, 404 nếu không có), `POST /api/sfx` (form `name`, `file`; 400 kèm lời dễ hiểu khi tên trùng hoặc file hỏng), `DELETE /api/sfx/{id}` (chỉ xoá được âm của bạn).
+- **Dữ liệu:** `data/sfx/builtin/<id>-v<VERSION>.wav` (sinh một lần, đổi công thức trong `sfx.py` thì tăng `VERSION`), `data/sfx/user/<id>.wav`, `data/sfx/user.json`.
+- **Lưu ý:** audio sách nói đã tạo xong **không tự đổi** khi bạn xoá rồi thêm lại âm cùng tên, hay khi đổi `VERSION`: khoá cache đoạn chưa gồm âm hiệu ứng. Chương cần dùng âm mới thì bấm "Tạo lại chương này".
 
 ## Hội thoại
 

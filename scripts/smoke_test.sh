@@ -251,6 +251,13 @@ PASS=$((PASS + $(grep -c '^PASS  ' "$WORK/books.out")))
 FAIL=$((FAIL + $(grep -c '^FAIL  ' "$WORK/books.out")))
 grep -qE '^(PASS|FAIL)  ' "$WORK/books.out" || bad "sách nói: smoke_books.py không chạy được" "$(tail -3 "$WORK/books.out" | tr '\n' ' ')"
 
+echo "== thẻ hiệu ứng âm thanh (sinh đủ âm, tách thẻ, engine giả, API /api/sfx)"
+$PY scripts/smoke_sfx.py "$B" >"$WORK/sfx.out" 2>&1
+grep -E '^(PASS|FAIL)  ' "$WORK/sfx.out"
+PASS=$((PASS + $(grep -c '^PASS  ' "$WORK/sfx.out")))
+FAIL=$((FAIL + $(grep -c '^FAIL  ' "$WORK/sfx.out")))
+grep -qE '^(PASS|FAIL)  ' "$WORK/sfx.out" || bad "thẻ hiệu ứng: smoke_sfx.py không chạy được" "$(tail -3 "$WORK/sfx.out" | tr '\n' ' ')"
+
 echo "== hàng đợi sách nói (server riêng: kill -9 / SIGINT giữa chừng, tiếp tục, xuất MP3 + m4b; ~3 phút, SKIP_QUEUE=1 để bỏ)"
 if [ -z "${SKIP_QUEUE:-}" ]; then
   # dung sai 0.12 = 0.1 yêu cầu + 0.02 cho độ ngẫu nhiên của model (mỗi lần dựng, đuôi lặng của từng câu lệch vài chục ms)
@@ -297,7 +304,7 @@ dialogue.prune_cache(limit=500)                       # k0 (job sống) vẫn n�
 assert any("vượt TTS_CACHE_MB" in m for m in records), records
 PYEOF
 
-check "các script thử (smoke_books, smoke_queue…) không để lại thư mục tạm trong /tmp" bash -c '! find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$1" \( -name "smoke_queue_*" -o -name "smoke_books_*" -o -name "measure_pauses_*" -o -name "perf_books_*" -o -name "lexicon_probe_*" -o -name "bench_vieneu_*" -o -name "smoke_ui_*" -o -name "gv_selftest_*" -o -name "gv_save_*" -o -name "gv_drop_*" \) | grep -q .' _ "$WORK/stamp"
+check "các script thử (smoke_books, smoke_queue…) không để lại thư mục tạm trong /tmp" bash -c '! find "${TMPDIR:-/tmp}" -maxdepth 1 -newer "$1" \( -name "smoke_queue_*" -o -name "smoke_books_*" -o -name "smoke_sfx_*" -o -name "measure_pauses_*" -o -name "perf_books_*" -o -name "lexicon_probe_*" -o -name "bench_vieneu_*" -o -name "smoke_ui_*" -o -name "gv_selftest_*" -o -name "gv_save_*" -o -name "gv_drop_*" \) | grep -q .' _ "$WORK/stamp"
 
 echo
 echo "Kết quả: $PASS PASS, $FAIL FAIL"

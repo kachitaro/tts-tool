@@ -29,10 +29,12 @@ import numpy as np
 
 import history
 import library
+import sfx
 import text_normalize
 from engines.registry import ENGINES
 
 SR = 48000
+assert SR == sfx.SR, "sfx.py phải cùng sample rate với dialogue"
 LINE_RE = re.compile(r"^\s*\[([^\]]+)\]\s*:\s*(.*)$")
 MAX_LINES = 300
 JOB_TTL = 3600           # giây; job xong quá 1 giờ thì bị dọn
@@ -289,11 +291,11 @@ SEGMENT_PAD_S = 0.075
 
 
 def make_plan(engine, text: str, normalize: bool) -> list[tuple[str, object]]:
-    """Tách theo thẻ nghỉ; mỗi đoạn chữ qua prepare_text (bỏ thẻ cảm xúc không hỗ trợ, chuẩn hoá). Raise ValueError.
+    """Tách theo thẻ nghỉ và thẻ hiệu ứng ("sfx", id); mỗi đoạn chữ qua prepare_text (bỏ thẻ cảm xúc không hỗ trợ, chuẩn hoá). Raise ValueError.
     Đoạn chỉ còn dấu câu (vd. "!" sau thẻ nghỉ) bị bỏ vì engine không đọc được."""
     plan: list[tuple[str, object]] = []
     for kind, val in text_normalize.split_pauses(text):
-        if kind == "pause":
+        if kind in ("pause", "sfx"):
             plan.append((kind, val))
         elif (prepared := prepare_text(engine, val, normalize)) and re.search(r"\w", prepared):
             plan.append(("text", prepared))
@@ -301,7 +303,9 @@ def make_plan(engine, text: str, normalize: bool) -> list[tuple[str, object]]:
 
 
 def plan_key(plan: list[tuple[str, object]]) -> str:
-    return "\x1f".join(f"[nghỉ {v:g}s]" if k == "pause" else v for k, v in plan)
+    return "\x1f".join(
+        f"[nghỉ {v:g}s]" if k == "pause" else f"[sfx {sfx.key(v)}]" if k == "sfx" else v for k, v in plan
+    )
 
 
 async def synth_segment(engine, voice: str, text: str, speed: int, *, pitch: int = 0, extra: str = "",
@@ -327,6 +331,9 @@ async def render_plan(engine, voice: str, plan: list[tuple[str, object]], speed:
     for idx, (kind, val) in enumerate(plan):
         if kind == "text":
             parts.append(await synth_segment(engine, voice, val, speed, **kw))
+            continue
+        if kind == "sfx":
+            parts.append(await anyio.to_thread.run_sync(sfx.audio, val))
             continue
         pads = (idx > 0 and plan[idx - 1][0] == "text") + (idx + 1 < len(plan) and plan[idx + 1][0] == "text")
         parts.append(np.zeros(int(max(0.0, val - pads * SEGMENT_PAD_S) * SR), dtype=np.float32))

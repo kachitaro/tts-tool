@@ -34,6 +34,7 @@ import lexicon
 import library
 import narrate
 import settings
+import sfx
 import text_normalize
 import voice_age
 from engines.registry import ENGINES
@@ -580,6 +581,38 @@ async def mix_save(
 
 
 # ───────────────────────────── thư viện giọng ─────────────────────────────
+
+
+@app.get("/api/sfx")
+def sfx_catalog() -> list[dict]:
+    return sfx.catalog()
+
+
+@app.get("/api/sfx/{sfx_id}/audio")
+def sfx_audio(sfx_id: str) -> FileResponse:
+    try:
+        return FileResponse(sfx.path_of(sfx_id), media_type="audio/wav")
+    except sfx.SfxNotFound as ex:
+        raise HTTPException(404, str(ex)) from ex
+
+
+@app.post("/api/sfx")
+async def sfx_add(name: str = Form(...), file: UploadFile = File(...)) -> dict:
+    reserved = [t for e in ENGINES.values() for t in e.capabilities()["emotion_tags"]]
+    raw = await read_upload(file)
+    try:
+        return await anyio.to_thread.run_sync(sfx.add, name, raw, reserved)
+    except sfx.SfxError as ex:
+        raise HTTPException(400, str(ex)) from ex
+
+
+@app.delete("/api/sfx/{sfx_id}")
+def sfx_delete(sfx_id: str) -> dict:
+    try:
+        sfx.delete(sfx_id)
+    except sfx.SfxNotFound as ex:
+        raise HTTPException(404, str(ex)) from ex
+    return {"ok": True}
 
 
 @app.get("/api/library")

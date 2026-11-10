@@ -16,11 +16,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import anyio
 import numpy as np
 
 import cast as castmod
 import dialogue
 import lexicon
+import sfx
 
 _LEAD = re.compile(r"^\s*(?:[–—―‒]\s*|-\s+)")
 _INNER = re.compile(r"\s+[–—―‒-]\s+")
@@ -254,7 +256,7 @@ def segment_text(segs: list[Segment], k: int) -> str:
 
 @dataclass
 class Unit:
-    """Một bước dựng audio. kind: "text" (gọi model, có cache) | "silence" (khoảng lặng, seconds)."""
+    """Một bước dựng audio. kind: "text" (gọi model, có cache) | "silence" (khoảng lặng, seconds) | "sfx" (hiệu ứng âm thanh, text = id)."""
     kind: str
     engine: object = None
     voice: str = ""
@@ -292,6 +294,9 @@ def units(text: str, narr: tuple, dlg: tuple | None, normalize: bool, book_lex: 
             if kind == "text":
                 out.extend(Unit("text", engine, voice, p, chars=len(p)) for p in split_pieces(val, piece_chars))
                 continue
+            if kind == "sfx":
+                out.append(Unit("sfx", text=val))
+                continue
             # thẻ nghỉ: trừ phần lặng đệm sát đoạn chữ kề bên (cùng cách tính với dialogue.render_plan), kể cả chữ nằm ở run kề bên
             pads = (idx > 0 and plan[idx - 1][0] == "text") + (idx + 1 < len(plan) and plan[idx + 1][0] == "text")
             # chữ nằm ở run kề bên (đổi giọng) hoặc ở đoạn kề bên: thẻ nghỉ cuối plan luôn được nối với một đoạn chữ khác
@@ -306,6 +311,8 @@ async def render_unit(u: Unit, speed: int, warnings: list | None = None, force: 
     """force=True: bỏ qua cache (dùng cho "Tạo lại chương": model lấy mẫu ngẫu nhiên nên cho bản đọc khác)."""
     if u.kind == "silence":
         return np.zeros(int(u.seconds * dialogue.SR), dtype=np.float32)
+    if u.kind == "sfx":
+        return await anyio.to_thread.run_sync(sfx.audio, u.text)
     return await dialogue.synth_segment(u.engine, u.voice, u.text, speed, force=force, warnings=warnings if warnings is not None else [])
 
 

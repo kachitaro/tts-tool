@@ -315,3 +315,19 @@ kbd { font: inherit; font-size: var(--fs-sm); border: 1px solid var(--line); bor
 @media (max-width: 640px) { .charrow { grid-template-columns: 1fr 1fr; } .charhead { display: none; } }
 
 .menu > .pop.up { top: auto; bottom: calc(100% + 6px); }
+
+/* ───── bảng chọn thẻ (tagpicker.js) ───── */
+.tp { position: relative; display: inline-block; }
+.tp-pop { position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: min(560px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 12px; }
+.tp-pop.up { top: auto; bottom: calc(100% + 6px); }
+.tp-pop > input[type=search] { width: 100%; }
+.tp-list { max-height: 300px; overflow-y: auto; margin: 10px 0; padding-right: 4px; }
+.tp-group + .tp-group { margin-top: 12px; }
+.tp-title { color: var(--muted); font-size: var(--fs-sm); font-weight: 600; margin-bottom: 6px; }
+.tp-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tp-chip { border: 1px solid var(--line); background: var(--surface-2); color: var(--text); border-radius: 6px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: var(--fs-sm); }
+.tp-chip:hover, .tp-chip:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+.tp-chip.add { background: transparent; border-style: dashed; color: var(--accent-strong); }
+.tp-empty { font-size: var(--fs-sm); margin-top: 4px; }
+.tp-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 10px; min-height: 40px; font-size: var(--fs-sm); }
+.tp-info { flex: 1; min-width: 140px; }
