@@ -85,7 +85,8 @@ Chỉ cần chạy server và dùng edge-tts: `python -m pip install -e .`.
 tts-tool/
 ├── pyproject.toml     khai báo gói, thư viện cần cài và cấu hình ruff
 ├── giongviet/         toàn bộ code Python (chạy: python -m giongviet)
-│   ├── server.py      API FastAPI và phục vụ giao diện web
+│   ├── server.py      tạo app FastAPI: phục vụ giao diện web, xử lý lỗi, gắn các router
+│   ├── api/           các route /api/*, mỗi file một router (voices, read, dialogue, books, sfx, history, settings; common: hàm dùng chung)
 │   ├── library.py     thư viện giọng, thư mục data/, đọc file audio
 │   ├── settings.py    cài đặt chung; history.py: lịch sử các lần đọc; paths.py: đường dẫn cố định
 │   ├── engines/       các engine đọc (edge, vieneu); thêm engine mới ở đây
@@ -111,7 +112,7 @@ Lần đầu dùng VieNeu, model (~1 GB) được tải từ Hugging Face một 
 
 ## App cửa sổ riêng (`giong-viet`)
 
-Cùng giao diện web, nhưng chạy trong cửa sổ riêng (pywebview + WebKitGTK), không cần mở trình duyệt. Backend `giongviet/server.py` và giao diện web giữ nguyên; `python -m giongviet` + trình duyệt vẫn chạy được (dùng khi chạy từ xa).
+Cùng giao diện web, nhưng chạy trong cửa sổ riêng (pywebview + WebKitGTK), không cần mở trình duyệt. Backend (`giongviet/server.py` và `giongviet/api/`) và giao diện web giữ nguyên; `python -m giongviet` + trình duyệt vẫn chạy được (dùng khi chạy từ xa).
 
 **Phụ thuộc Python:** nhóm `app` của `pyproject.toml` (`pywebview>=6.2,<7`), cài cùng lệnh ở mục "Cài đặt" (hoặc riêng: `python -m pip install -e ".[app]"`).
 
