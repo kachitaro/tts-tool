@@ -1,3 +1,5 @@
+> Viết trước khi sắp xếp lại thư mục (11/2026): đường dẫn trong file là đường dẫn cũ, xem bảng trong PROMPTS-RESTRUCTURE.md.
+
 # Prompt bundle: bảng chọn thẻ kiểu ElevenLabs + hiệu ứng âm thanh
 
 Dán **từng phase** cho coding agent theo thứ tự. Mỗi phase kết thúc bằng **STOP & REPORT**:

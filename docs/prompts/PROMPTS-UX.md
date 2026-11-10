@@ -1,3 +1,5 @@
+> Viết trước khi sắp xếp lại thư mục (11/2026): đường dẫn trong file là đường dẫn cũ, xem bảng trong PROMPTS-RESTRUCTURE.md.
+
 # Prompt bundle: làm lại UX/UI "Giọng Việt"
 
 Dán **từng phase** cho agent. Mỗi phase kết thúc bằng **STOP & REPORT**.

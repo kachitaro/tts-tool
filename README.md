@@ -62,17 +62,44 @@ Hội thoại ghép được giọng của cả hai engine; đầu ra luôn là 
 
 ## Cài đặt
 
-Đã chạy thử với Python 3.14 trên Linux. Cần Python 3.10 trở lên; nên dùng venv (xem "Lỗi thường gặp" nếu `pip` báo `externally-managed-environment`).
+Đã chạy thử với Python 3.14 trên Linux (`pyproject.toml` yêu cầu Python 3.14 trở lên). Nên dùng venv (xem "Lỗi thường gặp" nếu `pip` báo `externally-managed-environment`).
 
 ```bash
 cd tts-tool
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-python -m pip install -r requirements.txt
+python -m pip install -e ".[vieneu,app,dev]"
 ```
 
-Chỉ cần edge-tts: xoá dòng `vieneu` trong `requirements.txt` trước khi cài; nút "Chất lượng cao" sẽ hiện "chưa cài".
+Một lệnh cài mọi thứ; phần trong ngoặc vuông là các nhóm tuỳ chọn, bỏ nhóm nào không cần:
+- `vieneu`: engine chạy trên máy, chất lượng cao ("Chất lượng cao"). Bỏ thì chỉ còn edge-tts (online) và nút đó hiện "chưa cài".
+- `app`: app cửa sổ riêng (`pywebview`). Cần thêm gói hệ thống GTK / WebKitGTK, xem mục "App cửa sổ riêng".
+- `dev`: công cụ cho người sửa code (`ruff`; cấu hình ruff nằm trong `pyproject.toml`).
+
+Chỉ cần chạy server và dùng edge-tts: `python -m pip install -e .`.
 `ffmpeg` là tuỳ chọn: có thì hội thoại xuất thêm MP3 và đọc được thêm định dạng audio mẫu (webm/m4a).
+
+## Cấu trúc thư mục
+
+```
+tts-tool/
+├── pyproject.toml     khai báo gói, thư viện cần cài và cấu hình ruff
+├── giongviet/         toàn bộ code Python (chạy: python -m giongviet)
+│   ├── server.py      API FastAPI và phục vụ giao diện web
+│   ├── library.py     thư viện giọng, thư mục data/, đọc file audio
+│   ├── settings.py    cài đặt chung; history.py: lịch sử các lần đọc; paths.py: đường dẫn cố định
+│   ├── engines/       các engine đọc (edge, vieneu); thêm engine mới ở đây
+│   ├── speech/        văn bản → audio dùng chung: chuẩn hoá, từ điển, thẻ hiệu ứng, hội thoại
+│   ├── books/         sách nói: lưu truyện, hàng đợi tạo audio, dàn giọng, nhập HTML, xuất file
+│   └── desktop/       app cửa sổ riêng (chạy: python -m giongviet.desktop)
+├── web/               giao diện web thuần (index.html, css/, js/, js/views/), không cần build
+├── config/            file bạn sửa được: từ dừng của gợi ý tên riêng, động từ nói, từ bị che
+├── data/              dữ liệu của bạn (giọng, truyện, cache), không nằm trong git
+├── tests/             js/ (test giao diện), smoke/ (kiểm tra nhanh toàn bộ), fixtures/ (dữ liệu mẫu)
+├── tools/             công cụ đo đạc và thí nghiệm cho người phát triển
+├── packaging/linux/   cài / gỡ lệnh `giong-viet` và mục menu ứng dụng
+└── docs/              ảnh minh hoạ (img/), tài liệu thiết kế giao diện (ux/), prompt đã dùng (prompts/)
+```
 
 ## Chạy
 
@@ -86,7 +113,7 @@ Lần đầu dùng VieNeu, model (~1 GB) được tải từ Hugging Face một 
 
 Cùng giao diện web, nhưng chạy trong cửa sổ riêng (pywebview + WebKitGTK), không cần mở trình duyệt. Backend `giongviet/server.py` và giao diện web giữ nguyên; `python -m giongviet` + trình duyệt vẫn chạy được (dùng khi chạy từ xa).
 
-**Phụ thuộc Python:** `requirements.txt` cho server (đủ để chạy `python -m giongviet`); `requirements-app.txt` (`pywebview>=6.2,<7`) là phần **thêm** cho app cửa sổ, cài sau `requirements.txt`. Công cụ dev (ruff) ở `requirements-dev.txt`, cấu hình `ruff.toml`.
+**Phụ thuộc Python:** nhóm `app` của `pyproject.toml` (`pywebview>=6.2,<7`), cài cùng lệnh ở mục "Cài đặt" (hoặc riêng: `python -m pip install -e ".[app]"`).
 
 **Cài gói hệ thống** (một lần; pip không cài được PyGObject trong `.venv` vì thiếu bản dev của girepository, nên dùng bản của hệ thống, `giongviet/desktop/gtk.py` tự tìm):
 
@@ -99,7 +126,7 @@ Cùng giao diện web, nhưng chạy trong cửa sổ riêng (pywebview + WebKit
 Tuỳ chọn: khay hệ thống cần thêm `gir1.2-ayatanaappindicator3-0.1` (Fedora `libayatana-appindicator-gtk3`, Arch `libayatana-appindicator`) và, trên GNOME, tiện ích AppIndicator (Ubuntu bật sẵn). `gstreamer1.0-plugins-good` cho WAV / FLAC / MP3 trong trình phát. Rồi:
 
 ```bash
-.venv/bin/python -m pip install -r requirements-app.txt   # pywebview
+.venv/bin/python -m pip install -e ".[app]"   # pywebview (bỏ qua nếu đã cài ở mục "Cài đặt")
 packaging/linux/install_desktop.sh        # lệnh ~/.local/bin/giong-viet + mục menu + biểu tượng, không cần root
 giong-viet                        # hoặc tìm "Giọng Việt" trong menu ứng dụng; chuột phải vào biểu tượng có "Đọc văn bản / Làm sách nói / Giọng đọc"
 packaging/linux/uninstall_desktop.sh      # gỡ (thêm --purge để xoá luôn cỡ / vị trí cửa sổ, nhật ký, localStorage của app; data/ không bị đụng)
@@ -311,11 +338,11 @@ Nút **Chạy tất cả**, **Chạy thử 5 chương đầu**, **Chạy khoản
 tests/smoke/smoke_test.sh            # khởi động server với data tạm, chạy các luồng chính, in PASS/FAIL, tự dọn
 SKIP_EDGE=1 tests/smoke/smoke_test.sh   # bỏ các bước cần mạng
 ```
-`tests/smoke/smoke_ui.py` (do `tests/smoke/smoke_test.sh` gọi; cần Chrome/Chromium, không có thì bỏ qua) mở giao diện trong Chrome headless: mọi route ở 390 / 768 / 1280 px không lỗi JS, không tràn ngang, nút biểu tượng có nhãn, không có từ kỹ thuật ngoài "Nâng cao", luồng bước 3 → tạo thử 5 chương. `-m giongviet.desktop --selftest` (cùng được gọi) kiểm app cửa sổ riêng: server, giao diện dựng xong trong WebKitGTK, mở lần 2, tải về, kéo thả, micro, hộp hỏi khi đóng lúc đang tạo, thoát sạch không sót tiến trình. Test JS thuần chạy bằng `node tests/js/*.test.mjs`. `tests/smoke/smoke_books.py` (do `tests/smoke/smoke_test.sh` gọi) kiểm riêng phần sách nói; `tests/smoke/smoke_queue.py` (cũng do `tests/smoke/smoke_test.sh` gọi, `SKIP_QUEUE=1` để bỏ, ~3 phút) tự chạy server riêng để `kill -9` / SIGINT giữa chừng, khởi động lại và xuất MP3 + m4b. `tools/bench_vieneu.py` đo tốc độ fp32 và int8. `tools/measure_pauses.py` đo khoảng lặng xuống đoạn / sau tiêu đề trong audio chương thật (chạy VieNeu ~45 giây; cũng nằm trong bước hàng đợi của `tests/smoke/smoke_test.sh`). `tools/perf_books.py` đo hiệu năng với truyện giả 20 MB / 1.500 chương.
+`tests/smoke/smoke_ui.py` (do `tests/smoke/smoke_test.sh` gọi; cần Chrome/Chromium, không có thì bỏ qua) mở giao diện trong Chrome headless: mọi route ở 390 / 768 / 1280 px không lỗi JS, không tràn ngang, nút biểu tượng có nhãn, không có từ kỹ thuật ngoài "Nâng cao", luồng bước 3 → tạo thử 5 chương. `python -m giongviet.desktop --selftest` (cũng được gọi) kiểm app cửa sổ riêng: server, giao diện dựng xong trong WebKitGTK, mở lần 2, tải về, kéo thả, micro, hộp hỏi khi đóng lúc đang tạo, thoát sạch không sót tiến trình. Test JS thuần chạy bằng `node tests/js/*.test.mjs`. `tests/smoke/smoke_books.py` (do `tests/smoke/smoke_test.sh` gọi) kiểm riêng phần sách nói; `tests/smoke/smoke_queue.py` (cũng do `tests/smoke/smoke_test.sh` gọi, `SKIP_QUEUE=1` để bỏ, ~3 phút) tự chạy server riêng để `kill -9` / SIGINT giữa chừng, khởi động lại và xuất MP3 + m4b. `tools/bench_vieneu.py` đo tốc độ fp32 và int8. `tools/measure_pauses.py` đo khoảng lặng xuống đoạn / sau tiêu đề trong audio chương thật (chạy VieNeu ~45 giây; cũng nằm trong bước hàng đợi của `tests/smoke/smoke_test.sh`). `tools/perf_books.py` đo hiệu năng với truyện giả 20 MB / 1.500 chương.
 
 ## Thêm engine mới
 
-Tạo `giongviet/engines/<ten>.py` chứa lớp kế thừa `engines.base.Engine`, rồi thêm một dòng `"engines.<ten>:<Lop>"` vào `PLUGINS` trong `giongviet/engines/registry.py`.
+Tạo `giongviet/engines/<ten>.py` chứa lớp kế thừa `giongviet.engines.base.Engine`, rồi thêm một dòng `"giongviet.engines.<ten>:<Lop>"` vào `PLUGINS` trong `giongviet/engines/registry.py`.
 Engine chưa cài vẫn hiện trên UI với nhãn "chưa cài"; plugin lỗi khi import bị bỏ qua.
 
 ## Lỗi thường gặp

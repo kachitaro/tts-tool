@@ -1,3 +1,5 @@
+> Viết trước khi sắp xếp lại thư mục (11/2026): đường dẫn trong file là đường dẫn cũ, xem bảng trong PROMPTS-RESTRUCTURE.md.
+
 # Prompt bundle: sắp xếp lại cấu trúc thư mục tts-tool
 
 Đi kèm 2 file: `restructure.py` (script di chuyển, chạy một lần) và `pyproject.toml` (mẫu). Đặt cả hai ở
