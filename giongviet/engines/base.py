@@ -47,12 +47,12 @@ class Engine(ABC):
     """Một engine TTS. Thêm engine mới: tạo file trong engines/ và thêm 1 dòng vào registry.py."""
 
     id: str
-    label: str            # tên ngắn hiện trên UI, ví dụ "Nhanh"
-    description: str      # dòng phụ dưới tên, ví dụ "edge-tts · cần mạng"
-    name: str             # tên hiển thị trong thông báo lỗi
+    label: str  # tên ngắn hiện trên UI, ví dụ "Nhanh"
+    description: str  # dòng phụ dưới tên, ví dụ "edge-tts · cần mạng"
+    name: str  # tên hiển thị trong thông báo lỗi
     install_hint: str = ""  # lệnh cài khi installed() == False
     error_status: int = 500  # mã HTTP khi synthesize/voices lỗi
-    local: bool = False      # chạy nặng trên máy người dùng (UI nhắc văn bản dài sẽ lâu)
+    local: bool = False  # chạy nặng trên máy người dùng (UI nhắc văn bản dài sẽ lâu)
 
     @staticmethod
     @abstractmethod
@@ -80,7 +80,7 @@ class Engine(ABC):
         (pitch, ref_audio, warnings: list[str] để engine thêm cảnh báo, …);
         engine bỏ qua opts nó không hỗ trợ."""
 
-    def prepare_reference(self, wav_path: Path) -> None:
+    def prepare_reference(self, wav_path: Path) -> None:  # noqa: B027  (hook tuỳ chọn, mặc định không làm gì)
         """Làm sạch file mẫu của giọng thư viện tại chỗ (đồng bộ, chạy trong thread).
         Mặc định không làm gì; engine có clone ghi đè nếu hỗ trợ denoise/encode trước."""
 

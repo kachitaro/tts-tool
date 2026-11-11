@@ -7,7 +7,7 @@ import re
 import secrets
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from giongviet import library
 
@@ -27,7 +27,9 @@ def _audio_file(item_id: str, ext: str):
     return HISTORY / f"{item_id}.{ext}"
 
 
-def save(kind: str, meta: dict, audio: bytes, ext: str, extra: dict[str, bytes] | None = None) -> str:
+def save(
+    kind: str, meta: dict, audio: bytes, ext: str, extra: dict[str, bytes] | None = None
+) -> str:
     """kind: "tts" | "dialogue". meta do nơi gọi quyết định (văn bản, giọng, cast, tốc độ…).
     extra: định dạng đi kèm {"mp3": bytes} lưu cạnh file chính."""
     with _lock:
@@ -36,8 +38,14 @@ def save(kind: str, meta: dict, audio: bytes, ext: str, extra: dict[str, bytes] 
         _audio_file(item_id, ext).write_bytes(audio)
         for e, data in (extra or {}).items():
             _audio_file(item_id, e).write_bytes(data)
-        record = {**meta, "id": item_id, "kind": kind, "ext": ext, "bytes": len(audio),
-                  "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        record = {
+            **meta,
+            "id": item_id,
+            "kind": kind,
+            "ext": ext,
+            "bytes": len(audio),
+            "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
         library._write_json(_meta_path(item_id), record)
         for old in sorted(p.stem for p in HISTORY.glob("*.json"))[:-MAX_ITEMS]:
             _remove(old)
@@ -66,7 +74,7 @@ def list_items(kind: str | None = None) -> list[dict]:
     for p in sorted(HISTORY.glob("*.json"), reverse=True) if HISTORY.is_dir() else []:
         try:
             m = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
         if not kind or m.get("kind") == kind:
             out.append(m)

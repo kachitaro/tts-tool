@@ -26,12 +26,19 @@ _SELECTOR = re.compile(r"^([a-zA-Z][\w-]*)?(?:#([\w-]+))?((?:\.[\w-]+)*)$")
 
 # ─────────────────────────── trích văn bản từ HTML ───────────────────────────
 
+
 def parse_selector(selector: str) -> tuple[str, str, tuple[str, ...]]:
     """Selector đơn giản: "#id", ".class", "tag", "tag#id.class1.class2". Raise ValueError nếu không hiểu."""
     m = _SELECTOR.match(selector.strip())
     if not selector.strip() or not m or not any(m.groups()):
-        raise ValueError(f"Selector '{selector}' không hợp lệ (chỉ nhận dạng #id, .class, tag hoặc tag#id.class).")
-    return (m.group(1) or "").lower(), m.group(2) or "", tuple(c for c in m.group(3).split(".") if c)
+        raise ValueError(
+            f"Selector '{selector}' không hợp lệ (chỉ nhận dạng #id, .class, tag hoặc tag#id.class)."
+        )
+    return (
+        (m.group(1) or "").lower(),
+        m.group(2) or "",
+        tuple(c for c in m.group(3).split(".") if c),
+    )
 
 
 class ChapterExtractor(HTMLParser):
@@ -42,7 +49,7 @@ class ChapterExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.sel_tag, self.sel_id, self.sel_classes = parse_selector(selector)
         self.capturing = False
-        self.skip_depth = 0           # đang ở trong script/style/quảng cáo
+        self.skip_depth = 0  # đang ở trong script/style/quảng cáo
         self.skip_stack: list[str] = []
         self.parts: list[str] = []
         self.title = ""
@@ -123,12 +130,13 @@ def extract(html: str, selector: str = DEFAULT_SELECTOR) -> tuple[str, str, bool
 
 # ───────────────────────────── tiêu đề, số chương ─────────────────────────────
 
+
 def clean_title(raw: str) -> str:
     t = re.split(r"\s+[|–-]\s+(?:Truyen|truyện|TruyenFull)", raw, flags=re.I)[0]
-    t = re.sub(r"^.*?(?=Chương\s+\d)", "", t)                  # bỏ tên truyện phía trước
+    t = re.sub(r"^.*?(?=Chương\s+\d)", "", t)  # bỏ tên truyện phía trước
     t = re.sub(r"^(Chương\s+\d+)\s*:\s*\1\s*:\s*", r"\1: ", t, flags=re.I)  # "Chương 1: Chương 1:"
     head, _, rest = t.partition(":")
-    if rest and rest.strip().upper() == rest.strip():         # phần sau dấu : viết IN HOA
+    if rest and rest.strip().upper() == rest.strip():  # phần sau dấu : viết IN HOA
         rest = " " + rest.strip().lower().capitalize()
     t = (head + (":" + rest if rest else "")).strip()
     return re.sub(r"\s+", " ", t)
@@ -144,6 +152,7 @@ def chapter_number(title: str, filename: str = "") -> int | None:
 
 
 # ───────────────────────── từ bị che, số bị tách ─────────────────────────
+
 
 def load_masked_words(path: Path) -> list[str]:
     """Đọc file .txt (mỗi dòng một từ, '#' là chú thích): cụm dài khớp trước."""
@@ -180,7 +189,12 @@ def unmask(text: str, patterns) -> str:
         return text
     for pat, word in patterns:
         # dòng chỉ toàn dấu * (ngăn cảnh "***") khớp với mọi từ: phải còn ít nhất một chữ thật mới khôi phục
-        text = pat.sub(lambda m: keep_case(m.group(0), word) if re.search(r"\w", m.group(0)) else m.group(0), text)
+        text = pat.sub(
+            lambda m, w=word: (
+                keep_case(m.group(0), w) if re.search(r"\w", m.group(0)) else m.group(0)
+            ),
+            text,
+        )
     return text
 
 
@@ -196,15 +210,21 @@ def masked_matches(masked: str, correct: str) -> bool:
     """Từ bị che `masked` ("m**n") có đúng là `correct` ("muốn") bị che bớt chữ không?"""
     if "*" not in masked or "*" in correct or not correct.strip():
         return False
-    body = "".join(f"(?:{re.escape(c)}|\\*)" if c.isalpha() else re.escape(c) for c in unicodedata.normalize("NFC", correct.strip()))
+    body = "".join(
+        f"(?:{re.escape(c)}|\\*)" if c.isalpha() else re.escape(c)
+        for c in unicodedata.normalize("NFC", correct.strip())
+    )
     return re.fullmatch(f"(?i:{body})", unicodedata.normalize("NFC", masked.strip())) is not None
 
 
-_THOUSANDS = [(re.compile(r"(\d)\.\s+(\d{3})(?!\d)"), r"\1.\2"), (re.compile(r"(\d),\s+(\d{3})(?!\d)"), r"\1,\2")]
+_THOUSANDS = [
+    (re.compile(r"(\d)\.\s+(\d{3})(?!\d)"), r"\1.\2"),
+    (re.compile(r"(\d),\s+(\d{3})(?!\d)"), r"\1,\2"),
+]
 
 
 def join_split_numbers(text: str) -> str:
-    """"2. 513" → "2.513", "2, 513" → "2,513" (trang truyện tách số ở dấu phân cách hàng nghìn)."""
+    """ "2. 513" → "2.513", "2, 513" → "2,513" (trang truyện tách số ở dấu phân cách hàng nghìn)."""
     for rx, rep in _THOUSANDS:
         text = rx.sub(rep, text)
     return text

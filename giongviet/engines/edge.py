@@ -6,11 +6,40 @@ from .base import Engine
 
 # Dùng khi không lấy được danh sách giọng từ Microsoft (ví dụ mất mạng).
 FALLBACK = [
-    {"id": "vi-VN-HoaiMyNeural", "name": "HoaiMy", "label": "Hoài My (nữ, Việt)", "gender": "nữ", "region": "", "lang": "vi-VN"},
-    {"id": "vi-VN-NamMinhNeural", "name": "NamMinh", "label": "Nam Minh (nam, Việt)", "gender": "nam", "region": "", "lang": "vi-VN"},
-    {"id": "en-US-AvaMultilingualNeural", "name": "AvaMultilingual", "label": "Ava (nữ, Anh, đa ngôn ngữ)", "gender": "nữ", "region": "", "lang": "en-US"},
-    {"id": "en-US-AndrewMultilingualNeural", "name": "AndrewMultilingual", "label": "Andrew (nam, Anh, đa ngôn ngữ)", "gender": "nam", "region": "", "lang": "en-US"},
+    {
+        "id": "vi-VN-HoaiMyNeural",
+        "name": "HoaiMy",
+        "label": "Hoài My (nữ, Việt)",
+        "gender": "nữ",
+        "region": "",
+        "lang": "vi-VN",
+    },
+    {
+        "id": "vi-VN-NamMinhNeural",
+        "name": "NamMinh",
+        "label": "Nam Minh (nam, Việt)",
+        "gender": "nam",
+        "region": "",
+        "lang": "vi-VN",
+    },
+    {
+        "id": "en-US-AvaMultilingualNeural",
+        "name": "AvaMultilingual",
+        "label": "Ava (nữ, Anh, đa ngôn ngữ)",
+        "gender": "nữ",
+        "region": "",
+        "lang": "en-US",
+    },
+    {
+        "id": "en-US-AndrewMultilingualNeural",
+        "name": "AndrewMultilingual",
+        "label": "Andrew (nam, Anh, đa ngôn ngữ)",
+        "gender": "nam",
+        "region": "",
+        "lang": "en-US",
+    },
 ]
+DEFAULT_VOICE = FALLBACK[0]["id"]  # dùng khi gọi với giọng rỗng
 PITCH_DROPPED = "Đã bỏ cao độ do edge-tts không hỗ trợ tổ hợp này"
 
 
@@ -29,6 +58,7 @@ class EdgeEngine(Engine):
     def installed() -> bool:
         try:
             import edge_tts  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -53,8 +83,16 @@ class EdgeEngine(Engine):
                     short = name.split("-")[-1].replace("Neural", "")
                     lang = "Việt" if loc.startswith("vi-") else loc
                     # region là phương ngữ (bac/trung/nam); edge không cho biết nên để trống.
-                    voices.append({"id": name, "name": short, "label": f"{short} ({gender}, {lang})",
-                                   "gender": gender, "region": "", "lang": loc})
+                    voices.append(
+                        {
+                            "id": name,
+                            "name": short,
+                            "label": f"{short} ({gender}, {lang})",
+                            "gender": gender,
+                            "region": "",
+                            "lang": loc,
+                        }
+                    )
             voices.sort(key=lambda x: (not x["id"].startswith("vi-"), x["label"]))
             self._voices = voices or FALLBACK
         except Exception:
@@ -70,7 +108,9 @@ class EdgeEngine(Engine):
             if chunk["type"] == "audio":
                 buf.write(chunk["data"])
         if buf.tell() == 0:
-            raise edge_tts.exceptions.NoAudioReceived("edge-tts không trả về audio (kiểm tra kết nối mạng).")
+            raise edge_tts.exceptions.NoAudioReceived(
+                "edge-tts không trả về audio (kiểm tra kết nối mạng)."
+            )
         return buf.getvalue()
 
     async def synthesize(self, text: str, voice: str, speed: int, **opts) -> tuple[bytes, str]:

@@ -17,11 +17,13 @@ import time
 
 if "TTS_DATA_DIR" not in os.environ:
     os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp(prefix="perf_books_")
-    atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)   # dọn khi thoát
+    atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)  # dọn khi thoát
 from giongviet.books import store as books  # noqa: E402
 
-WORDS = ("hắn đứng lặng người nhìn về phía xa trong lòng dâng lên một cảm giác khó tả Tiêu Viêm cười nhạt đấu khí cuồn cuộn "
-         "thiếu niên áo đen bước vào đại sảnh ánh mắt sắc lạnh nói rằng ngươi không thể nào thắng được ta").split()
+WORDS = (
+    "hắn đứng lặng người nhìn về phía xa trong lòng dâng lên một cảm giác khó tả Tiêu Viêm cười nhạt đấu khí cuồn cuộn "
+    "thiếu niên áo đen bước vào đại sảnh ánh mắt sắc lạnh nói rằng ngươi không thể nào thắng được ta"
+).split()
 
 
 def make_story(mb: float, chapters: int) -> bytes:
@@ -67,9 +69,14 @@ def main() -> None:
     ap.add_argument("--mb", type=float, default=20)
     ap.add_argument("--chapters", type=int, default=1500)
     a = ap.parse_args()
-    data = timed(f"tạo file giả {a.mb:g} MB / {a.chapters} chương", lambda: make_story(a.mb, a.chapters))
+    data = timed(
+        f"tạo file giả {a.mb:g} MB / {a.chapters} chương", lambda: make_story(a.mb, a.chapters)
+    )
     print(f"  kích thước thật: {len(data) / 2**20:.1f} MB")
-    book = timed("nhập (ghi source + dò encoding + gợi ý chế độ)", lambda: books.import_files([("story.txt", data)], "Perf", "", {}))
+    book = timed(
+        "nhập (ghi source + dò encoding + gợi ý chế độ)",
+        lambda: books.import_files([("story.txt", data)], "Perf", "", {}),
+    )
     bid = book["id"]
     docs = timed("  đọc + giải mã nguồn (load_docs)", lambda: books.load_docs(bid))
     settings = books.overrides(books.get(bid), {})
@@ -77,8 +84,14 @@ def main() -> None:
     summ = timed("  tóm tắt danh sách chương (summarize)", lambda: books.summarize(built))
     print(f"  {len(summ)} chương, stats={built['stats']}")
     docs = books.load_docs(bid)
-    timed("XEM TRƯỚC toàn bộ (load_docs + build + summarize)", lambda: books.summarize(books.build(docs, settings)))
-    timed("XÁC NHẬN (build + ghi chapters/)", lambda: books.confirm(bid, books.build(books.load_docs(bid), settings), settings))
+    timed(
+        "XEM TRƯỚC toàn bộ (load_docs + build + summarize)",
+        lambda: books.summarize(books.build(docs, settings)),
+    )
+    timed(
+        "XÁC NHẬN (build + ghi chapters/)",
+        lambda: books.confirm(bid, books.build(books.load_docs(bid), settings), settings),
+    )
     ch = timed("đọc một chương", lambda: books.chapter_text(bid, 700))
     print(f"  chương 700: {len(ch[1])} ký tự")
 

@@ -28,7 +28,7 @@ import numpy as np
 
 if "TTS_DATA_DIR" not in os.environ:
     os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp(prefix="lexicon_probe_")
-    atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)   # dọn khi thoát
+    atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)  # dọn khi thoát
 ROOT = Path(__file__).resolve().parent.parent
 from giongviet.engines.registry import ENGINES  # noqa: E402
 from giongviet.speech import dialogue  # noqa: E402
@@ -48,14 +48,18 @@ def variants(tpl: str, name: str) -> dict[str, str]:
         "plain": tpl.format(N=name),
         "hyphen": tpl.format(N=hy),
         "joined": tpl.format(N=jn),
-        "comma": tpl.replace("{N}", name).replace(" " + name, ", " + name).replace(name + " ", name + ", "),
+        "comma": tpl.replace("{N}", name)
+        .replace(" " + name, ", " + name)
+        .replace(name + " ", name + ", "),
         "pause_before": tpl.format(N=f"[nghỉ 0.2s] {name}"),
         "pause_after": tpl.format(N=f"{name} [nghỉ 0.2s]"),
         "pause_both": tpl.format(N=f"[nghỉ 0.2s] {name} [nghỉ 0.2s]"),
     }
 
 
-def silences(w: np.ndarray, min_s: float = 0.08, edge: float = 0.1, db: float = -40.0) -> list[tuple[float, float]]:
+def silences(
+    w: np.ndarray, min_s: float = 0.08, edge: float = 0.1, db: float = -40.0
+) -> list[tuple[float, float]]:
     win = int(0.01 * SR)
     n = len(w) // win
     quiet = np.abs(w[: n * win]).reshape(n, win).mean(1) < 10 ** (db / 20)
@@ -108,22 +112,32 @@ async def main() -> None:
                     ref[seed] = w
                 durs.append(len(w) / SR)
                 sl = silences(w)
-                sil_tot.append(sum(l for _, l in sl))
-                sil_max.append(max((l for _, l in sl), default=0.0))
+                sil_tot.append(sum(dur for _, dur in sl))
+                sil_max.append(max((dur for _, dur in sl), default=0.0))
                 same.append(bool(len(w) == len(ref[seed]) and np.array_equal(w, ref[seed])))
                 if sl:  # chỗ ngắt dài nhất (chỉ có nghĩa với biến thể có dấu phẩy / thẻ nghỉ)
-                    s, l = max(sl, key=lambda x: x[1])
+                    s, _dur = max(sl, key=lambda x: x[1])
                     r = f0_end_ratio(w, s)
                     if r:
                         ratios.append(r)
-            rows[vname] = {"text": text, "plan": [p[0] if p[0] == "pause" else "text" for p in ph], "dur": round(float(np.mean(durs)), 2),
-                           "silence_sum": round(float(np.mean(sil_tot)), 2), "silence_max": round(float(np.mean(sil_max)), 2),
-                           "f0_end_ratio": round(float(np.mean(ratios)), 3) if ratios else None, "identical_to_plain": all(same)}
+            rows[vname] = {
+                "text": text,
+                "plan": [p[0] if p[0] == "pause" else "text" for p in ph],
+                "dur": round(float(np.mean(durs)), 2),
+                "silence_sum": round(float(np.mean(sil_tot)), 2),
+                "silence_max": round(float(np.mean(sil_max)), 2),
+                "f0_end_ratio": round(float(np.mean(ratios)), 3) if ratios else None,
+                "identical_to_plain": all(same),
+            }
         result[label] = rows
         print(f"\n== {label}: {tpl.format(N=name)}")
-        print(f"{'biến thể':14s} {'dài(s)':>7s} {'Σ lặng':>7s} {'lặng max':>9s} {'f0 cuối/trung vị':>17s}  giống plain từng byte?")
+        print(
+            f"{'biến thể':14s} {'dài(s)':>7s} {'Σ lặng':>7s} {'lặng max':>9s} {'f0 cuối/trung vị':>17s}  giống plain từng byte?"
+        )
         for v, r in rows.items():
-            print(f"{v:14s} {r['dur']:7.2f} {r['silence_sum']:7.2f} {r['silence_max']:9.2f} {str(r['f0_end_ratio']):>17s}  {r['identical_to_plain']}")
+            print(
+                f"{v:14s} {r['dur']:7.2f} {r['silence_sum']:7.2f} {r['silence_max']:9.2f} {str(r['f0_end_ratio']):>17s}  {r['identical_to_plain']}"
+            )
     out = ROOT / "out" / "lexicon_probe.json"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

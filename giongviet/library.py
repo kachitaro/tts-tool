@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import threading
 import unicodedata
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +49,7 @@ class NotFound(LookupError):
 
 # ───────────────────────────── helpers ─────────────────────────────
 
+
 def _write_json(path: Path, data) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -71,7 +72,9 @@ def parse_tags(raw) -> list[str]:
     return out[:10]
 
 
-def _clean_fields(name=None, tags=None, gender=None, region=None, description=None, age=None) -> dict:
+def _clean_fields(
+    name=None, tags=None, gender=None, region=None, description=None, age=None
+) -> dict:
     """Chỉ giữ và kiểm tra các trường được truyền vào (None = không đổi)."""
     out: dict = {}
     if name is not None:
@@ -100,6 +103,7 @@ def _clean_fields(name=None, tags=None, gender=None, region=None, description=No
 
 # ───────────────────────────── audio ─────────────────────────────
 
+
 def decode_audio(data: bytes) -> tuple[np.ndarray, int]:
     """bytes bất kỳ → (mono float32, sample rate). Thử soundfile trước, ffmpeg là fallback."""
     import soundfile as sf
@@ -112,14 +116,16 @@ def decode_audio(data: bytes) -> tuple[np.ndarray, int]:
     if shutil.which("ffmpeg"):
         proc = subprocess.run(
             ["ffmpeg", "-v", "error", "-i", "pipe:0", "-f", "wav", "-ac", "1", "pipe:1"],
-            input=data, capture_output=True,
+            input=data,
+            capture_output=True,
         )
         if proc.returncode == 0 and proc.stdout:
             wav, sr = sf.read(io.BytesIO(proc.stdout), dtype="float32", always_2d=True)
             return wav.mean(axis=1), sr
     raise LibraryError(
         "Không đọc được file audio. Hãy dùng wav/mp3/flac/ogg"
-        + ("" if shutil.which("ffmpeg") else " (cài ffmpeg để đọc thêm webm/m4a)") + "."
+        + ("" if shutil.which("ffmpeg") else " (cài ffmpeg để đọc thêm webm/m4a)")
+        + "."
     )
 
 
@@ -130,9 +136,13 @@ def normalize_reference(data: bytes) -> tuple[np.ndarray, int]:
     wav, sr = decode_audio(data)
     secs = len(wav) / sr
     if secs < MIN_SECONDS:
-        raise LibraryError(f"Audio quá ngắn ({secs:.1f}s). Cần từ {MIN_SECONDS:.0f} đến {MAX_SECONDS:.0f} giây.")
+        raise LibraryError(
+            f"Audio quá ngắn ({secs:.1f}s). Cần từ {MIN_SECONDS:.0f} đến {MAX_SECONDS:.0f} giây."
+        )
     if secs > MAX_SECONDS:
-        raise LibraryError(f"Audio quá dài ({secs:.1f}s). Cần từ {MIN_SECONDS:.0f} đến {MAX_SECONDS:.0f} giây.")
+        raise LibraryError(
+            f"Audio quá dài ({secs:.1f}s). Cần từ {MIN_SECONDS:.0f} đến {MAX_SECONDS:.0f} giây."
+        )
     wav, _ = librosa.effects.trim(wav, top_db=30)
     peak = float(np.abs(wav).max()) if wav.size else 0.0
     if peak < 1e-4:
@@ -141,6 +151,7 @@ def normalize_reference(data: bytes) -> tuple[np.ndarray, int]:
 
 
 # ───────────────────────────── voices ─────────────────────────────
+
 
 def _dir(voice_id: str) -> Path:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", voice_id):
@@ -164,12 +175,14 @@ def get(voice_id: str) -> dict:
     return json.loads(meta.read_text(encoding="utf-8"))
 
 
-def list_voices(engine: str | None = None, tag: str | None = None, gender: str | None = None) -> list[dict]:
+def list_voices(
+    engine: str | None = None, tag: str | None = None, gender: str | None = None
+) -> list[dict]:
     out = []
     for meta in sorted(VOICES.glob("*/meta.json")) if VOICES.is_dir() else []:
         try:
             v = json.loads(meta.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
         if engine and v.get("engine") != engine:
             continue
@@ -197,8 +210,14 @@ def _make(engine: str, source: str, fields: dict, write, **extra) -> dict:
         try:
             write(d)
             meta = {
-                "id": voice_id, **clean, "engine": engine, "source": source, "consent": True, "favorite": False,
-                "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), **extra,
+                "id": voice_id,
+                **clean,
+                "engine": engine,
+                "source": source,
+                "consent": True,
+                "favorite": False,
+                "created_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                **extra,
             }
             _write_json(d / "meta.json", meta)
         except BaseException:
@@ -207,14 +226,21 @@ def _make(engine: str, source: str, fields: dict, write, **extra) -> dict:
     return meta
 
 
-def create(*, engine, wav: np.ndarray, sr: int, consent: bool, source: str = "clone", **fields) -> dict:
+def create(
+    *, engine, wav: np.ndarray, sr: int, consent: bool, source: str = "clone", **fields
+) -> dict:
     """Ghi ref.wav + meta.json. Việc tiền xử lý riêng của engine do server gọi sau đó."""
     import soundfile as sf
 
     if not consent:
         raise LibraryError("Cần xác nhận bạn là chủ giọng nói hoặc đã được người đó đồng ý.")
-    return _make(engine, source, fields, lambda d: sf.write(str(d / "ref.wav"), wav, sr, subtype="PCM_16"),
-                 duration=round(len(wav) / sr, 2))
+    return _make(
+        engine,
+        source,
+        fields,
+        lambda d: sf.write(str(d / "ref.wav"), wav, sr, subtype="PCM_16"),
+        duration=round(len(wav) / sr, 2),
+    )
 
 
 def create_mix(*, engine: str, cache_name: str, arrays: dict, mix_meta: dict, **fields) -> dict:
@@ -228,9 +254,11 @@ def check_mixable(voice: str, _depth: int = 0) -> None:
     cũng phải đạt (đệ quy). Raise NotFound / LibraryError."""
     if not voice.startswith(LIB_PREFIX):
         return
-    meta = get(voice[len(LIB_PREFIX):])
+    meta = get(voice[len(LIB_PREFIX) :])
     if not meta.get("consent"):
-        raise LibraryError(f"Giọng '{meta.get('name', voice)}' chưa có xác nhận quyền sử dụng nên không trộn được.")
+        raise LibraryError(
+            f"Giọng '{meta.get('name', voice)}' chưa có xác nhận quyền sử dụng nên không trộn được."
+        )
     if meta.get("source") == "mix" and _depth < 10:
         for parent in (meta.get("voice_a"), meta.get("voice_b")):
             try:
@@ -258,17 +286,18 @@ def delete(voice_id: str) -> None:
 
 # ───────────────────────────── yêu thích giọng preset ─────────────────────────────
 
+
 def favorites() -> set[str]:
     try:
         return set(json.loads(FAVORITES.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return set()
 
 
 def set_favorite(engine: str, voice: str, on: bool) -> None:
     """Giọng thư viện ghi vào meta.json, giọng preset ghi vào favorites.json (key "engine:voice_id")."""
     if voice.startswith(LIB_PREFIX):
-        update(voice[len(LIB_PREFIX):], favorite=on)
+        update(voice[len(LIB_PREFIX) :], favorite=on)
         return
     with _lock:
         favs = favorites()

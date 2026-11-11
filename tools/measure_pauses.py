@@ -22,7 +22,7 @@ import sys
 import tempfile
 
 os.environ["TTS_DATA_DIR"] = tempfile.mkdtemp(prefix="measure_pauses_")
-atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)   # dọn khi thoát
+atexit.register(shutil.rmtree, os.environ["TTS_DATA_DIR"], ignore_errors=True)  # dọn khi thoát
 os.environ.setdefault("BOOK_SEGMENT_CHARS", "220")
 import numpy as np  # noqa: E402
 import soundfile as sf  # noqa: E402
@@ -35,8 +35,10 @@ from giongviet.speech import dialogue  # noqa: E402
 
 # Một câu dài nhiều vế ngăn bằng dấu phẩy (không có dấu chấm giữa chừng): bị cắt ở ranh giới vế khi vượt giới hạn đoạn, mà không
 # sinh khoảng lặng "hết câu" của model (khoảng lặng ≥ 0,35 s đo được ở đây chỉ có thể là chỗ xuống đoạn văn).
-LONG = ("Gió thổi qua những mái nhà ngói đỏ, mang theo mùi khói bếp từ những gian bếp nhỏ, cùng tiếng gà gáy vọng lại từ xa, "
-        "tiếng chó sủa lẫn trong sương sớm, tiếng trẻ con í ới gọi nhau ngoài ngõ, và cả tiếng mái chèo khua nhẹ ngoài bến.")
+LONG = (
+    "Gió thổi qua những mái nhà ngói đỏ, mang theo mùi khói bếp từ những gian bếp nhỏ, cùng tiếng gà gáy vọng lại từ xa, "
+    "tiếng chó sủa lẫn trong sương sớm, tiếng trẻ con í ới gọi nhau ngoài ngõ, và cả tiếng mái chèo khua nhẹ ngoài bến."
+)
 PLAIN = f"""Chương 1: Thử nghỉ đoạn
 Buổi sáng ở làng chài yên ắng, chỉ có tiếng sóng vỗ đều đặn vào bờ cát.
 Ông Tư kiểm tra từng chiếc lưới, từng sợi dây neo trước khi ra khơi.
@@ -67,7 +69,10 @@ def quiet_span(w: np.ndarray, center: int, db: float = -40.0) -> float:
     """Độ dài (giây) của khoảng lặng liên tục (cửa sổ 10 ms dưới -40 dB) chứa mẫu `center`."""
     win = int(0.01 * dialogue.SR)
     thr = 10 ** (db / 20)
-    quiet = lambda i: i >= 0 and i * win < len(w) and np.abs(w[i * win:(i + 1) * win]).mean() < thr  # noqa: E731
+
+    def quiet(i: int) -> bool:
+        return bool(i >= 0 and i * win < len(w) and np.abs(w[i * win : (i + 1) * win]).mean() < thr)
+
     c = center // win
     if not quiet(c):
         return 0.0
@@ -82,7 +87,9 @@ def quiet_span(w: np.ndarray, center: int, db: float = -40.0) -> float:
 async def run_variant(name: str, text: str, dialogue_voice: bool, tol: float) -> bool:
     engine = ENGINES["vieneu"]
     narr, dlg = (engine, "Hải Đăng"), ((engine, "Trúc Ly") if dialogue_voice else None)
-    book = books.import_files([("t.txt", text.encode())], f"Đo nghỉ {name}", "", {"engine": "vieneu", "voice": "Hải Đăng"})
+    book = books.import_files(
+        [("t.txt", text.encode())], f"Đo nghỉ {name}", "", {"engine": "vieneu", "voice": "Hải Đăng"}
+    )
     bid = book["id"]
     settings = books.overrides(books.get(bid), {})
     books.confirm(bid, books.build(books.load_docs(bid), settings), settings)
@@ -100,22 +107,34 @@ async def run_variant(name: str, text: str, dialogue_voice: bool, tol: float) ->
     # dựng lại từ cache theo từng mảnh để biết vị trí mẫu của mọi chỗ nghỉ / mối nối (cùng cách ghép với worker)
     parts, pause_at, cont_joins, pos = [], [], [], 0
     for k in range(len(segs)):
-        us = narrate.units(narrate.segment_text(segs, k), narr, dlg, b["normalize"], b.get("lexicon"), [])
+        us = narrate.units(
+            narrate.segment_text(segs, k), narr, dlg, b["normalize"], b.get("lexicon"), []
+        )
         for i, u in enumerate(us):
             a = await narrate.render_unit(u, b["speed"])
             if u.pause:
-                pause_at.append((pos + len(a) // 2, "mối nối đoạn cắt" if i == len(us) - 1 else "trong đoạn cắt"))
+                pause_at.append(
+                    (
+                        pos + len(a) // 2,
+                        "mối nối đoạn cắt" if i == len(us) - 1 else "trong đoạn cắt",
+                    )
+                )
             parts.append(a)
             pos += len(a)
         if k + 1 < len(segs) and segs[k + 1].cont:
             cont_joins.append(pos)
     wav = np.concatenate(parts)
     flac, sr = sf.read(str(books.chapter_audio(bid, 1)), dtype="float32")
-    assert abs(len(flac) - len(wav)) < 0.01 * sr, (len(flac) / sr, len(wav) / sr)  # cùng audio với file worker đã ghi
+    assert abs(len(flac) - len(wav)) < 0.01 * sr, (
+        len(flac) / sr,
+        len(wav) / sr,
+    )  # cùng audio với file worker đã ghi
 
     expected = [g for _, g in (p for p in paras[:-1])]
     ok = len(pause_at) == len(expected)
-    print(f"\n== {name}: {len(segs)} đoạn cắt (cont: {[int(s.cont) for s in segs]}), {len(expected)} chỗ xuống đoạn / tiêu đề, audio {len(wav) / sr:.1f}s")
+    print(
+        f"\n== {name}: {len(segs)} đoạn cắt (cont: {[int(s.cont) for s in segs]}), {len(expected)} chỗ xuống đoạn / tiêu đề, audio {len(wav) / sr:.1f}s"
+    )
     print(f"{'#':>2s} {'loại':18s} {'mong đợi':>9s} {'đo được':>8s} {'lệch':>7s}  kết quả")
     for i, (c, label) in enumerate(pause_at):
         want = expected[i] if i < len(expected) else float("nan")
@@ -123,19 +142,23 @@ async def run_variant(name: str, text: str, dialogue_voice: bool, tol: float) ->
         got = quiet_span(wav, c)
         good = abs(got - want) <= tol
         ok &= bool(good)
-        print(f"{i + 1:2d} {label:18s} {want:9.2f} {got:8.2f} {got - want:+7.2f}  {'OK' if good else 'LỆCH'}")
+        print(
+            f"{i + 1:2d} {label:18s} {want:9.2f} {got:8.2f} {got - want:+7.2f}  {'OK' if good else 'LỆCH'}"
+        )
     for c in cont_joins:  # giữa hai mảnh của một đoạn văn dài: không được có khoảng nghỉ đoạn văn
         got = quiet_span(wav, c)
         good = got < 0.4
         ok &= good
-        print(f"   {'nối trong đoạn văn':18s} {'<0.40':>9s} {got:8.2f} {'':7s}  {'OK' if good else 'LỆCH'}")
+        print(
+            f"   {'nối trong đoạn văn':18s} {'<0.40':>9s} {got:8.2f} {'':7s}  {'OK' if good else 'LỆCH'}"
+        )
     return ok
 
 
 async def main(tol: float) -> int:
     ok = await run_variant("một giọng", PLAIN, False, tol)
     ok &= await run_variant("hai giọng", DIALOGUE, True, tol)
-    print("\nTất cả trong dung sai ±%.2fs." % tol if ok else "\nCÓ CHỖ LỆCH quá dung sai.")
+    print(f"\nTất cả trong dung sai ±{tol:.2f}s." if ok else "\nCÓ CHỖ LỆCH quá dung sai.")
     return 0 if ok else 1
 
 

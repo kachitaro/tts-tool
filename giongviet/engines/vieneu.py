@@ -71,7 +71,9 @@ def check_emotion_tags() -> list[str]:
     problems = [f"{t} không còn trong vieneu" for t in EMOTION_TAGS if t[1:-1] not in real]
     # Mỗi cảm xúc k phải có đúng một thẻ tiếng Việt ghi cứng.
     covered = {real[t[1:-1]] for t in EMOTION_TAGS if t[1:-1] in real}
-    problems += [f"vieneu có thêm cảm xúc #{k} chưa có thẻ" for k in sorted(set(real.values()) - covered)]
+    problems += [
+        f"vieneu có thêm cảm xúc #{k} chưa có thẻ" for k in sorted(set(real.values()) - covered)
+    ]
     return problems
 
 
@@ -79,7 +81,7 @@ def has_vnni() -> bool:
     """CPU có tập lệnh VNNI (avx_vnni hoặc avx512_vnni)? int8 chỉ nhanh và không méo tiếng khi có."""
     try:
         flags = Path("/proc/cpuinfo").read_text().split("flags", 1)[1].split("\n", 1)[0].split()
-    except (OSError, IndexError):
+    except OSError, IndexError:
         return False
     return "avx_vnni" in flags or "avx512_vnni" in flags
 
@@ -115,12 +117,19 @@ def _voice_entry(vid: str, label: str, preset: dict) -> dict:
     parts = [p.strip() for p in desc.split("·")]
     gender = _GENDER.get(preset.get("gender") or "") or {"Nam": "nam", "Nữ": "nữ"}.get(parts[0], "")
     region = _REGION.get(parts[1], "") if len(parts) > 1 else ""
-    style = _STYLE.get(preset.get("style") or "") or (parts[2].removeprefix("Phong cách ") if len(parts) > 2 else "")
+    style = _STYLE.get(preset.get("style") or "") or (
+        parts[2].removeprefix("Phong cách ") if len(parts) > 2 else ""
+    )
     # Giọng không có description và không phải "featured" là giọng do UI cũ lưu bằng add_voice(save=True).
     legacy = not desc and preset.get("featured") is None and bool(preset)
     return {
-        "id": vid, "name": vid, "label": label, "gender": gender, "region": region,
-        "tags": [style] if style else [], "description": desc,
+        "id": vid,
+        "name": vid,
+        "label": label,
+        "gender": gender,
+        "region": region,
+        "tags": [style] if style else [],
+        "description": desc,
         "source": "clone" if legacy else "preset",
     }
 
@@ -147,6 +156,7 @@ class VieNeuEngine(Engine):
     def installed() -> bool:
         try:
             import vieneu  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -161,8 +171,13 @@ class VieNeuEngine(Engine):
 
     def capabilities(self) -> dict:
         # Thẻ cảm xúc chỉ có ở mode mặc định v3turbo.
-        return {"clone": True, "pitch": False,
-                "emotion_tags": EMOTION_TAGS if self._mode == "v3turbo" else [], "mix": True, "normalize": True}
+        return {
+            "clone": True,
+            "pitch": False,
+            "emotion_tags": EMOTION_TAGS if self._mode == "v3turbo" else [],
+            "mix": True,
+            "normalize": True,
+        }
 
     def _get(self):
         if self._tts is None:
@@ -187,7 +202,10 @@ class VieNeuEngine(Engine):
     def _voices(self) -> list[dict]:
         tts = self._get()
         presets = getattr(tts, "_preset_voices", {})
-        return [_voice_entry(vid, label, presets.get(vid) or {}) for label, vid in tts.list_preset_voices()]
+        return [
+            _voice_entry(vid, label, presets.get(vid) or {})
+            for label, vid in tts.list_preset_voices()
+        ]
 
     async def voices(self) -> list[dict]:
         # Lần đầu sẽ tải model (vài trăm MB) — có thể mất vài phút
@@ -199,12 +217,19 @@ class VieNeuEngine(Engine):
     # cache speaker_emb + codes thành emb.<mode>.npz cạnh ref.wav rồi truyền cho infer(voice=dict).
     def _lib_voice(self, tts, voice_id: str) -> dict:
         meta = library.get(voice_id)
-        if meta.get("source") == "mix":  # giọng trộn: chỉ có emb.<mode>.npz, không có ref.wav để encode lại
+        if (
+            meta.get("source") == "mix"
+        ):  # giọng trộn: chỉ có emb.<mode>.npz, không có ref.wav để encode lại
             cache = library.voice_dir(voice_id) / f"emb.{self._mode}.npz"
             if not cache.is_file():
-                raise ValueError(f"Giọng trộn này tạo ở mode '{meta.get('mode')}', hiện đang chạy '{self._mode}'.")
+                raise ValueError(
+                    f"Giọng trộn này tạo ở mode '{meta.get('mode')}', hiện đang chạy '{self._mode}'."
+                )
             with np.load(cache) as z:
-                return {"speaker_emb": z["speaker_emb"], "codes": z["codes"] if z["codes"].size else None}
+                return {
+                    "speaker_emb": z["speaker_emb"],
+                    "codes": z["codes"] if z["codes"].size else None,
+                }
         ref = library.ref_path(voice_id)
         if not ref.is_file():
             raise library.NotFound(voice_id)
@@ -216,13 +241,21 @@ class VieNeuEngine(Engine):
         voice = None
         if cache.is_file() and cache.stat().st_mtime_ns >= stamp:
             with np.load(cache) as z:
-                voice = {"speaker_emb": z["speaker_emb"], "codes": z["codes"] if z["codes"].size else None}
+                voice = {
+                    "speaker_emb": z["speaker_emb"],
+                    "codes": z["codes"] if z["codes"].size else None,
+                }
         if voice is None:
             emb, codes = tts.encode_reference(ref, denoise=False)  # ref.wav đã denoise lúc thêm
-            voice = {"speaker_emb": np.asarray(emb, dtype=np.float32),
-                     "codes": None if codes is None else np.asarray(codes, dtype=np.int64)}
-            np.savez(cache, speaker_emb=voice["speaker_emb"],
-                     codes=voice["codes"] if voice["codes"] is not None else np.zeros(0, dtype=np.int64))
+            voice = {
+                "speaker_emb": np.asarray(emb, dtype=np.float32),
+                "codes": None if codes is None else np.asarray(codes, dtype=np.int64),
+            }
+            np.savez(
+                cache,
+                speaker_emb=voice["speaker_emb"],
+                codes=voice["codes"] if voice["codes"] is not None else np.zeros(0, dtype=np.int64),
+            )
         self._lib_cache[voice_id] = {"stamp": stamp, "voice": voice}
         return voice
 
@@ -256,7 +289,7 @@ class VieNeuEngine(Engine):
         """Giọng preset hoặc lib: → {"speaker_emb", "codes"}."""
         try:
             if vid.startswith(library.LIB_PREFIX):
-                return self._lib_voice(tts, vid[len(library.LIB_PREFIX):])
+                return self._lib_voice(tts, vid[len(library.LIB_PREFIX) :])
             p = tts.get_preset_voice(vid)
         except (library.NotFound, ValueError) as e:
             raise ValueError(f"Không tìm thấy giọng '{vid}'.") from e
@@ -272,31 +305,53 @@ class VieNeuEngine(Engine):
         owner = codes_owner(alpha, float(np.linalg.norm(ea)), float(np.linalg.norm(eb)))
         codes = None if variant == "B" else (da if owner == "a" else db)["codes"]
         return {
-            "speaker_emb": make_embedding(variant, ea, eb, alpha), "codes": codes,
-            "codes_from": None if variant == "B" or codes is None else (voice_a if owner == "a" else voice_b),
-            "variant": variant, "alpha": alpha, "mode": self._mode, "cache_name": f"emb.{self._mode}.npz",
+            "speaker_emb": make_embedding(variant, ea, eb, alpha),
+            "codes": codes,
+            "codes_from": None
+            if variant == "B" or codes is None
+            else (voice_a if owner == "a" else voice_b),
+            "variant": variant,
+            "alpha": alpha,
+            "mode": self._mode,
+            "cache_name": f"emb.{self._mode}.npz",
         }
 
     async def mix(self, voice_a: str, voice_b: str, alpha: float, variant: str = "C") -> dict:
         return await anyio.to_thread.run_sync(self._mix, voice_a, voice_b, alpha, variant)
 
-    def _synthesize(self, text: str, voice: str | None, speed: int, ref_audio: str | None,
-                    voice_data: dict | None = None, seed: int | None = None) -> bytes:
+    def _synthesize(
+        self,
+        text: str,
+        voice: str | None,
+        speed: int,
+        ref_audio: str | None,
+        voice_data: dict | None = None,
+        seed: int | None = None,
+    ) -> bytes:
         import soundfile as sf
 
         tts = self._get()
         with self._run_lock:
-            if seed is not None:  # vieneu lấy mẫu bằng RNG toàn cục; khoá run_lock giữ cho seed không bị chen ngang
+            if (
+                seed is not None
+            ):  # vieneu lấy mẫu bằng RNG toàn cục; khoá run_lock giữ cho seed không bị chen ngang
                 import random
 
                 random.seed(seed)
                 np.random.seed(seed)
-            if voice_data is None and not ref_audio and voice and voice.startswith(library.LIB_PREFIX):
-                voice_data = self._lib_voice(tts, voice[len(library.LIB_PREFIX):])
+            if (
+                voice_data is None
+                and not ref_audio
+                and voice
+                and voice.startswith(library.LIB_PREFIX)
+            ):
+                voice_data = self._lib_voice(tts, voice[len(library.LIB_PREFIX) :])
             if ref_audio:
                 audio = tts.infer(text, ref_audio=ref_audio, denoise=True)
             elif voice_data is not None:
-                audio = tts.infer(text, voice=voice_data, use_ref_codes=voice_data.get("codes") is not None)
+                audio = tts.infer(
+                    text, voice=voice_data, use_ref_codes=voice_data.get("codes") is not None
+                )
             else:
                 audio = tts.infer(text, voice=voice or None)
 
@@ -312,5 +367,12 @@ class VieNeuEngine(Engine):
 
     async def synthesize(self, text: str, voice: str, speed: int, **opts) -> tuple[bytes, str]:
         data = await anyio.to_thread.run_sync(
-            self._synthesize, text, voice, speed, opts.get("ref_audio"), opts.get("voice_data"), opts.get("seed"))
+            self._synthesize,
+            text,
+            voice,
+            speed,
+            opts.get("ref_audio"),
+            opts.get("voice_data"),
+            opts.get("seed"),
+        )
         return data, "audio/wav"

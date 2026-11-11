@@ -23,7 +23,10 @@ RULES: list[tuple[re.Pattern, object]] = [
     # "50k" → "năm mươi ca" (sai); người Việt hiểu là nghìn.
     (re.compile(rf"(?<![\w.,])({_NUM})\s?[kK]\b(?!\w)"), r"\1 nghìn"),
     # "1.5 triệu" → "một chấm năm triệu" (sai); dấu chấm trước 1–2 chữ số rồi tới đơn vị lớn là dấu thập phân.
-    (re.compile(r"(?<![\d.,])(\d{1,3})\.(\d{1,2})(?!\d)(?=\s*(?:triệu|tỷ|tỉ|nghìn|ngàn)\b)"), r"\1,\2"),
+    (
+        re.compile(r"(?<![\d.,])(\d{1,3})\.(\d{1,2})(?!\d)(?=\s*(?:triệu|tỷ|tỉ|nghìn|ngàn)\b)"),
+        r"\1,\2",
+    ),
     (re.compile(r"\bTP\.\s+(\S)"), _city),
     # "km²" → "ki lô mét bình phương", "m³" → "mét lập phương" (sai, phải là "vuông"/"khối"); dạng "km2" đọc đúng.
     (re.compile(r"(?<![A-Za-z])(km|dm|cm|mm|m|ha)²"), r"\g<1>2"),
@@ -63,9 +66,11 @@ def split_pauses(text: str) -> list[tuple[str, object]]:
     for m in PAUSE_RE.finditer(text):
         sec = float(m.group(1).replace(",", "."))
         if not PAUSE_MIN <= sec <= PAUSE_MAX:
-            raise ValueError(f"Thẻ nghỉ phải từ {PAUSE_MIN:g} đến {PAUSE_MAX:g} giây (gặp {m.group(0)}).")
+            raise ValueError(
+                f"Thẻ nghỉ phải từ {PAUSE_MIN:g} đến {PAUSE_MAX:g} giây (gặp {m.group(0)})."
+            )
         if m.start() > pos:
-            out.extend(sfx.split(text[pos:m.start()]))
+            out.extend(sfx.split(text[pos : m.start()]))
         out.append(("pause", sec))
         pos = m.end()
     if pos < len(text):

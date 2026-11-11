@@ -36,12 +36,14 @@ class LexiconError(ValueError):
 def _pause(v, label: str) -> float:
     try:
         x = float(v or 0)
-    except (TypeError, ValueError):
-        raise LexiconError(f"{label} phải là số giây.")
+    except TypeError, ValueError:
+        raise LexiconError(f"{label} phải là số giây.") from None
     if x == 0:
         return 0.0
     if not PAUSE_MIN <= x <= PAUSE_MAX:
-        raise LexiconError(f"{label} phải là 0 (không nghỉ) hoặc từ {PAUSE_MIN:g} đến {PAUSE_MAX:g} giây.")
+        raise LexiconError(
+            f"{label} phải là 0 (không nghỉ) hoặc từ {PAUSE_MIN:g} đến {PAUSE_MAX:g} giây."
+        )
     return round(x, 1)
 
 
@@ -72,7 +74,7 @@ def validate(entries) -> list[dict]:
 def load_global() -> list[dict]:
     try:
         return validate(json.loads(GLOBAL_PATH.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return []
 
 
@@ -95,13 +97,16 @@ def _pause_tag(sec: float) -> str:
     return f"[nghỉ {sec:g}s]"
 
 
-def apply(text: str, book_entries: list[dict] | None = None, global_entries: list[dict] | None = None) -> str:
+def apply(
+    text: str, book_entries: list[dict] | None = None, global_entries: list[dict] | None = None
+) -> str:
     """Áp dụng từ điển lên `text` (một lượt). book_entries được ưu tiên hơn global_entries khi khớp bằng nhau."""
-    entries = [(0, i, e) for i, e in enumerate(book_entries or [])] + [(1, i, e) for i, e in enumerate(global_entries or [])]
+    entries = [(0, i, e) for i, e in enumerate(book_entries or [])] + [
+        (1, i, e) for i, e in enumerate(global_entries or [])
+    ]
     if not entries or not text:
         return text
-    found: list[tuple[int, int, int, int, dict]] = []  # (start, -length, tier, idx, entry) + end
-    spans = []
+    spans = []  # (start, -length, tier, idx, end, entry)
     for tier, idx, e in entries:
         for m in _compile(e).finditer(text):
             spans.append((m.start(), -(m.end() - m.start()), tier, idx, m.end(), e))
@@ -124,13 +129,18 @@ def apply(text: str, book_entries: list[dict] | None = None, global_entries: lis
 
 # ───────────────────────────── gợi ý tên riêng ─────────────────────────────
 
+
 def load_stopwords() -> set[str]:
     """config/name_stopwords.txt: mỗi dòng một từ, '#' là chú thích; không phân biệt hoa thường. Sửa file là có hiệu lực ngay."""
     try:
         lines = STOPWORDS_PATH.read_text(encoding="utf-8").splitlines()
     except OSError:
         return set()
-    return {unicodedata.normalize("NFC", l.split("#")[0].strip()).lower() for l in lines if l.split("#")[0].strip()}
+    return {
+        unicodedata.normalize("NFC", line.split("#")[0].strip()).lower()
+        for line in lines
+        if line.split("#")[0].strip()
+    }
 
 
 _WORD = re.compile(r"[^\W\d_]+")
@@ -138,7 +148,9 @@ _SENT_END = ".!?…"
 # Ký tự ngay trước từ đầu cụm cho biết từ đó đứng đầu câu / đầu lời thoại: . ! ? : … " “ « ‘ ' ( – — - 「 (hoặc đầu dòng)
 _BOUNDARY = set(".!?:…\"“”«»‘’'(–—―-「」『』[")
 MIN_PHRASE, MAX_PHRASE = 2, 4
-SINGLE_MIN = 5   # tiếng đơn (vd. "Viêm") chỉ được gợi ý khi đứng riêng, không ở đầu câu, ≥ ngần này lần
+SINGLE_MIN = (
+    5  # tiếng đơn (vd. "Viêm") chỉ được gợi ý khi đứng riêng, không ở đầu câu, ≥ ngần này lần
+)
 
 
 def _is_cap(w: str) -> bool:
@@ -151,16 +163,19 @@ class Term:
     count: int = 0
     chapter: int = 0
     example: str = ""
-    parent: str = ""   # khác rỗng: gợi ý 1 tiếng, thành phần của cụm `parent`
+    parent: str = ""  # khác rỗng: gợi ý 1 tiếng, thành phần của cụm `parent`
 
 
 def _sentence(line: str, start: int, end: int, limit: int = 220) -> str:
     a = max((line.rfind(c, 0, start) for c in _SENT_END), default=-1) + 1
-    b = min((i for i in (line.find(c, end) for c in _SENT_END) if i >= 0), default=len(line) - 1) + 1
-    s = line[a:b].strip().lstrip('"“”«»‘’\'–—-… ')  # bỏ dấu ngoặc / gạch thoại còn sót ở đầu câu
+    b = (
+        min((i for i in (line.find(c, end) for c in _SENT_END) if i >= 0), default=len(line) - 1)
+        + 1
+    )
+    s = line[a:b].strip().lstrip("\"“”«»‘’'–—-… ")  # bỏ dấu ngoặc / gạch thoại còn sót ở đầu câu
     if len(s) > limit:  # câu dài: cắt quanh cụm
         lo = max(0, start - a - limit // 2)
-        s = ("…" if lo else "") + line[a + lo:a + lo + limit].strip() + "…"
+        s = ("…" if lo else "") + line[a + lo : a + lo + limit].strip() + "…"
     return s
 
 
@@ -174,10 +189,12 @@ def scan_line(line: str, stop: set[str]):
             i += 1
             continue
         j = i
-        while j + 1 < n and _is_cap(toks[j + 1][0]) and not line[toks[j][2]:toks[j + 1][1]].strip():
+        while (
+            j + 1 < n and _is_cap(toks[j + 1][0]) and not line[toks[j][2] : toks[j + 1][1]].strip()
+        ):
             j += 1
-        run = toks[i:j + 1]
-        before = line[:run[0][1]].rstrip()
+        run = toks[i : j + 1]
+        before = line[: run[0][1]].rstrip()
         at_start = not before or before[-1] in _BOUNDARY
         # bỏ từ dừng (Anh, Hắn, Nhưng…) ở hai đầu; bỏ từ dừng đầu câu thì phần còn lại không còn đứng đầu câu
         while run and run[0][0].lower() in stop:
@@ -185,13 +202,21 @@ def scan_line(line: str, stop: set[str]):
             at_start = False
         while run and run[-1][0].lower() in stop:
             run = run[:-1]
-        if run and not at_start and len(run) <= MAX_PHRASE:  # 1 tiếng cũng yield; suggest_terms tách theo khoảng trắng
+        if (
+            run and not at_start and len(run) <= MAX_PHRASE
+        ):  # 1 tiếng cũng yield; suggest_terms tách theo khoảng trắng
             yield " ".join(t[0] for t in run), run[0][1], run[-1][2]
         i = j + 1
 
 
-def suggest_terms(chapters, known: set[str] | None = None, min_count: int = 3, limit: int = 200,
-                  stop: set[str] | None = None, single_min: int = SINGLE_MIN) -> list[Term]:
+def suggest_terms(
+    chapters,
+    known: set[str] | None = None,
+    min_count: int = 3,
+    limit: int = 200,
+    stop: set[str] | None = None,
+    single_min: int = SINGLE_MIN,
+) -> list[Term]:
     """chapters: iterable (n, text). Trả các cụm viết hoa 2–4 tiếng lặp lại ≥ min_count lần, xếp theo tần suất giảm dần;
     ngay sau mỗi cụm là các tiếng đơn thành phần của nó (Term.parent = cụm cha) nếu tiếng đó đứng riêng, không ở đầu câu,
     ≥ single_min lần. `known`: các cụm đã có trong từ điển (không phân biệt hoa thường) bị bỏ."""
@@ -207,10 +232,18 @@ def suggest_terms(chapters, known: set[str] | None = None, min_count: int = 3, l
                 if t is None:
                     t = terms[phrase] = Term(phrase, 0, n, _sentence(line, a, b))
                 t.count += 1
-    ranked = [t for t in terms.values() if " " in t.phrase and t.count >= min_count and t.phrase.lower() not in skip]
+    ranked = [
+        t
+        for t in terms.values()
+        if " " in t.phrase and t.count >= min_count and t.phrase.lower() not in skip
+    ]
     ranked.sort(key=lambda t: (-t.count, t.phrase))
     ranked = ranked[:limit]
-    singles = {p: t for p, t in terms.items() if " " not in p and t.count >= single_min and p.lower() not in skip}
+    singles = {
+        p: t
+        for p, t in terms.items()
+        if " " not in p and t.count >= single_min and p.lower() not in skip
+    }
     children: dict[str, list[Term]] = {}
     used: set[str] = set()
     for parent in ranked:  # mỗi tiếng đơn chỉ nằm dưới một cụm cha (cụm xuất hiện nhiều hơn)
@@ -218,7 +251,9 @@ def suggest_terms(chapters, known: set[str] | None = None, min_count: int = 3, l
             if word in singles and word not in used:
                 used.add(word)
                 s = singles[word]
-                children.setdefault(parent.phrase, []).append(Term(s.phrase, s.count, s.chapter, s.example, parent.phrase))
+                children.setdefault(parent.phrase, []).append(
+                    Term(s.phrase, s.count, s.chapter, s.example, parent.phrase)
+                )
     out: list[Term] = []
     for parent in ranked:
         out.append(parent)

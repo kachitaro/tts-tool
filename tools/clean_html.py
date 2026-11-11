@@ -37,12 +37,16 @@ from giongviet.books.html_import import (  # noqa: E402
 
 # ─────────────────────────────────── main ────────────────────────────────────
 
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Làm sạch HTML chương truyện thành .txt")
     ap.add_argument("inputs", nargs="+", help="file .html/.htm hoặc thư mục")
     ap.add_argument("-o", "--output", default="truyen.txt")
-    ap.add_argument("--masked", default=str(HERE.parent / "config" / "masked_words.txt"),
-                    help="từ điển khôi phục từ bị che dấu *")
+    ap.add_argument(
+        "--masked",
+        default=str(HERE.parent / "config" / "masked_words.txt"),
+        help="từ điển khôi phục từ bị che dấu *",
+    )
     args = ap.parse_args()
 
     files: list[Path] = []

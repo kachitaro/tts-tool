@@ -21,7 +21,7 @@ import time
 import unicodedata
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anyio
@@ -35,10 +35,12 @@ SR = 48000
 assert SR == sfx.SR, "sfx.py phải cùng sample rate với dialogue"
 LINE_RE = re.compile(r"^\s*\[([^\]]+)\]\s*:\s*(.*)$")
 MAX_LINES = 300
-JOB_TTL = 3600           # giây; job xong quá 1 giờ thì bị dọn
-EDGE_PARALLEL = 4        # engine không "local" chạy tối đa 4 dòng cùng lúc; engine local chạy tuần tự
+JOB_TTL = 3600  # giây; job xong quá 1 giờ thì bị dọn
+EDGE_PARALLEL = 4  # engine không "local" chạy tối đa 4 dòng cùng lúc; engine local chạy tuần tự
 CACHE_MAX_BYTES = int(float(os.getenv("TTS_CACHE_MB", "1024")) * 1024 * 1024)
-TARGET_RMS = 0.12        # RMS của phần có tiếng; đưa mọi dòng về cùng mức để edge và VieNeu không chênh âm lượng
+TARGET_RMS = (
+    0.12  # RMS của phần có tiếng; đưa mọi dòng về cùng mức để edge và VieNeu không chênh âm lượng
+)
 MAX_PEAK = 0.95
 CACHE = library.DATA / "cache"
 log = logging.getLogger("tts.dialogue")
@@ -54,6 +56,7 @@ class Busy(RuntimeError):
 
 
 # ───────────────────────────── kịch bản ─────────────────────────────
+
 
 def norm_name(s: str) -> str:
     return unicodedata.normalize("NFC", s.strip())
@@ -91,8 +94,10 @@ def parse_script(script: str, max_chars: int) -> list[Line]:
         try:
             text_normalize.split_pauses(text)  # báo sớm thẻ [nghỉ …] sai khoảng
         except ValueError as ex:
-            raise ScriptError(f"Dòng {n}: {ex}")
-        lines.append(Line(len(lines), speaker, text, "" if not lines else "paragraph" if blank else "line"))
+            raise ScriptError(f"Dòng {n}: {ex}") from None
+        lines.append(
+            Line(len(lines), speaker, text, "" if not lines else "paragraph" if blank else "line")
+        )
         blank = False
         if len(lines) > MAX_LINES:
             raise ScriptError(f"Kịch bản quá dài (tối đa {MAX_LINES} dòng).")
@@ -100,38 +105,51 @@ def parse_script(script: str, max_chars: int) -> list[Line]:
 
 
 def speakers_of(lines: list[Line]) -> list[str]:
-    return list(dict.fromkeys(l.speaker for l in lines))
+    return list(dict.fromkeys(line.speaker for line in lines))
 
 
 # ───────────────────────────── audio từng dòng ─────────────────────────────
+
 
 def prepare_text(engine, text: str, normalize: bool = True) -> str:
     """Bỏ thẻ cảm xúc mà engine này không hỗ trợ (engine khác thì đọc to cả chữ trong ngoặc);
     rồi chuẩn hoá văn bản nếu engine cần (VieNeu; edge được Microsoft tự chuẩn hoá)."""
     caps = engine.capabilities()
-    for tag in {t for e in ENGINES.values() for t in e.capabilities()["emotion_tags"]} - set(caps["emotion_tags"]):
+    for tag in {t for e in ENGINES.values() for t in e.capabilities()["emotion_tags"]} - set(
+        caps["emotion_tags"]
+    ):
         text = text.replace(tag, " ")
     if normalize and caps.get("normalize"):
         text = text_normalize.normalize(text)
     text = re.sub(r"\s+", " ", text).strip()
-    return re.sub(r"\s+([.,!?;:…])", r"\1", text)  # "Chào em [cười]." → "Chào em ." gây lỗi no-audio ở edge
+    return re.sub(
+        r"\s+([.,!?;:…])", r"\1", text
+    )  # "Chào em [cười]." → "Chào em ." gây lỗi no-audio ở edge
 
 
 def line_key(engine, voice: str, text: str, speed: int, extra: str = "") -> str:
     """Đổi một trong engine / giọng / lời / tốc độ / mode / (variant, alpha của giọng mix) là không dùng cache cũ.
     created_at của giọng thư viện để giọng bị xoá rồi tạo lại cùng tên không dính cache cũ."""
-    parts: dict = {"engine": engine.id, "voice": voice, "text": text, "speed": speed, "mode": engine.cache_tag()}
+    parts: dict = {
+        "engine": engine.id,
+        "voice": voice,
+        "text": text,
+        "speed": speed,
+        "mode": engine.cache_tag(),
+    }
     if extra:  # cao độ, hash file giọng mẫu… (đường đọc có thẻ nghỉ)
         parts["extra"] = extra
     if voice.startswith(library.LIB_PREFIX):
         try:
-            meta = library.get(voice[len(library.LIB_PREFIX):])
+            meta = library.get(voice[len(library.LIB_PREFIX) :])
         except library.NotFound:
             meta = {}
         parts["created_at"] = meta.get("created_at")
         if meta.get("source") == "mix":
             parts["variant"], parts["alpha"] = meta.get("variant"), meta.get("alpha")
-    return hashlib.sha256(json.dumps(parts, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]
+    return hashlib.sha256(
+        json.dumps(parts, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()[:32]
 
 
 def to_line_audio(data: bytes) -> np.ndarray:
@@ -150,7 +168,7 @@ def to_line_audio(data: bytes) -> np.ndarray:
         raise ValueError("Audio gần như im lặng.")
     _, (a, b) = librosa.effects.trim(wav, top_db=40)
     pad = int(0.03 * SR)  # giữ một chút lặng để khoảng nghỉ do gap_ms quyết định, không do engine
-    wav = wav[max(a - pad, 0): min(b + pad, len(wav))]
+    wav = wav[max(a - pad, 0) : min(b + pad, len(wav))]
     peak = float(np.abs(wav).max())
     active = wav[np.abs(wav) > 0.02 * peak]
     rms = float(np.sqrt(np.mean(active**2)))
@@ -171,12 +189,27 @@ def _write_wav(path: Path, wav: np.ndarray) -> None:
 def export_mp3(wav_path: Path, mp3_path: Path) -> bool:
     if not shutil.which("ffmpeg"):
         return False
-    r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(wav_path), "-codec:a", "libmp3lame", "-q:a", "2",
-                        str(mp3_path)], capture_output=True)
+    r = subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(wav_path),
+            "-codec:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
+            str(mp3_path),
+        ],
+        capture_output=True,
+    )
     return r.returncode == 0
 
 
 # ───────────────────────────── job ─────────────────────────────
+
 
 @dataclass
 class LineState:
@@ -242,15 +275,23 @@ def prune_cache(limit: int | None = None) -> int:
     total = _dir_size(CACHE)
     protected = {f"{k}.wav" for job in JOBS.values() for k in job.keys if k}
     freed = 0
-    for f in sorted((p for p in CACHE.glob("*.wav") if p.name not in protected), key=lambda p: p.stat().st_mtime):
+    for f in sorted(
+        (p for p in CACHE.glob("*.wav") if p.name not in protected), key=lambda p: p.stat().st_mtime
+    ):
         if total - freed <= limit:
             break
         size = f.stat().st_size
         f.unlink(missing_ok=True)
         freed += size
-    if total - freed > limit:  # phần còn lại là dòng của job đang sống + thư mục kết quả: không xoá được
-        log.warning("data/cache/ dùng %.1f MB, vượt TTS_CACHE_MB (%.1f MB): dòng của các job đang sống được giữ lại "
-                    "cho tới khi job bị dọn (sau 1 giờ).", (total - freed) / 2**20, limit / 2**20)
+    if (
+        total - freed > limit
+    ):  # phần còn lại là dòng của job đang sống + thư mục kết quả: không xoá được
+        log.warning(
+            "data/cache/ dùng %.1f MB, vượt TTS_CACHE_MB (%.1f MB): dòng của các job đang sống được giữ lại "
+            "cho tới khi job bị dọn (sau 1 giờ).",
+            (total - freed) / 2**20,
+            limit / 2**20,
+        )
     return freed
 
 
@@ -261,10 +302,26 @@ def get_job(job_id: str) -> Job:
     return job
 
 
-def create_job(lines: list[Line], cast: dict, speed: int, gap_ms: int, paragraph_gap_ms: int,
-               normalize: bool = True, meta: dict | None = None) -> Job:
+def create_job(
+    lines: list[Line],
+    cast: dict,
+    speed: int,
+    gap_ms: int,
+    paragraph_gap_ms: int,
+    normalize: bool = True,
+    meta: dict | None = None,
+) -> Job:
     purge()
-    job = Job(uuid.uuid4().hex[:12], lines, cast, speed, gap_ms, paragraph_gap_ms, normalize=normalize, meta=meta or {})
+    job = Job(
+        uuid.uuid4().hex[:12],
+        lines,
+        cast,
+        speed,
+        gap_ms,
+        paragraph_gap_ms,
+        normalize=normalize,
+        meta=meta or {},
+    )
     job.states = [LineState() for _ in lines]
     job.keys = [""] * len(lines)
     JOBS[job.id] = job
@@ -302,28 +359,51 @@ def make_plan(engine, text: str, normalize: bool) -> list[tuple[str, object]]:
 
 def plan_key(plan: list[tuple[str, object]]) -> str:
     return "\x1f".join(
-        f"[nghỉ {v:g}s]" if k == "pause" else f"[sfx {sfx.key(v)}]" if k == "sfx" else v for k, v in plan
+        f"[nghỉ {v:g}s]" if k == "pause" else f"[sfx {sfx.key(v)}]" if k == "sfx" else v
+        for k, v in plan
     )
 
 
-async def synth_segment(engine, voice: str, text: str, speed: int, *, pitch: int = 0, extra: str = "",
-                        seed: int | None = None, force: bool = False, warnings: list | None = None,
-                        ref_audio: str | None = None) -> np.ndarray:
+async def synth_segment(
+    engine,
+    voice: str,
+    text: str,
+    speed: int,
+    *,
+    pitch: int = 0,
+    extra: str = "",
+    seed: int | None = None,
+    force: bool = False,
+    warnings: list | None = None,
+    ref_audio: str | None = None,
+) -> np.ndarray:
     """Một đoạn chữ → audio 48 kHz đã cắt lặng + chuẩn hoá, qua cache của hội thoại (data/cache/<hash>.wav)."""
-    path = CACHE / f"{line_key(engine, voice, text, speed, f'p{pitch}|{extra}' if pitch or extra else '')}.wav"
+    path = (
+        CACHE
+        / f"{line_key(engine, voice, text, speed, f'p{pitch}|{extra}' if pitch or extra else '')}.wav"
+    )
     if path.is_file() and not force:
         path.touch()  # LRU
         return await anyio.to_thread.run_sync(_read_wav, path)
     sem = _sems.setdefault(engine.id, asyncio.Semaphore(1 if engine.local else EDGE_PARALLEL))
     async with sem:
-        data, _ = await engine.synthesize(text, voice, speed, seed=seed, pitch=pitch, ref_audio=ref_audio,
-                                          warnings=warnings if warnings is not None else [])
+        data, _ = await engine.synthesize(
+            text,
+            voice,
+            speed,
+            seed=seed,
+            pitch=pitch,
+            ref_audio=ref_audio,
+            warnings=warnings if warnings is not None else [],
+        )
     wav = await anyio.to_thread.run_sync(to_line_audio, data)
     await anyio.to_thread.run_sync(_write_wav, path, wav)
     return wav
 
 
-async def render_plan(engine, voice: str, plan: list[tuple[str, object]], speed: int, **kw) -> np.ndarray:
+async def render_plan(
+    engine, voice: str, plan: list[tuple[str, object]], speed: int, **kw
+) -> np.ndarray:
     """Sinh từng đoạn chữ, chèn khoảng lặng đúng độ dài ở thẻ nghỉ (đã trừ phần lặng đệm sát đoạn chữ kề bên)."""
     parts: list[np.ndarray] = []
     for idx, (kind, val) in enumerate(plan):
@@ -333,19 +413,37 @@ async def render_plan(engine, voice: str, plan: list[tuple[str, object]], speed:
         if kind == "sfx":
             parts.append(await anyio.to_thread.run_sync(sfx.audio, val))
             continue
-        pads = (idx > 0 and plan[idx - 1][0] == "text") + (idx + 1 < len(plan) and plan[idx + 1][0] == "text")
+        pads = (idx > 0 and plan[idx - 1][0] == "text") + (
+            idx + 1 < len(plan) and plan[idx + 1][0] == "text"
+        )
         parts.append(np.zeros(int(max(0.0, val - pads * SEGMENT_PAD_S) * SR), dtype=np.float32))
     return np.concatenate(parts)
 
 
-async def render_text(engine, voice: str, text: str, speed: int, normalize: bool, pitch: int,
-                      ref_audio: str | None, warnings: list) -> np.ndarray:
+async def render_text(
+    engine,
+    voice: str,
+    text: str,
+    speed: int,
+    normalize: bool,
+    pitch: int,
+    ref_audio: str | None,
+    warnings: list,
+) -> np.ndarray:
     """Đường đọc cho văn bản có thẻ nghỉ (tab Đọc): cùng pipeline với dòng hội thoại, mọi engine."""
     extra = ""
     if ref_audio:
         extra = "ref:" + hashlib.sha256(Path(ref_audio).read_bytes()).hexdigest()[:16]
-    return await render_plan(engine, voice, make_plan(engine, text, normalize), speed,
-                             pitch=pitch, extra=extra, warnings=warnings, ref_audio=ref_audio)
+    return await render_plan(
+        engine,
+        voice,
+        make_plan(engine, text, normalize),
+        speed,
+        pitch=pitch,
+        extra=extra,
+        warnings=warnings,
+        ref_audio=ref_audio,
+    )
 
 
 def encode_outputs(wav: np.ndarray, with_mp3: bool = True) -> tuple[bytes, bytes | None]:
@@ -372,8 +470,12 @@ async def _do_line(job: Job, i: int, force: bool = False, seed: int | None = Non
             path.touch()  # LRU: lần dùng gần nhất
         else:
             st.status, st.cached = "running", False
-            if simple and not plan[0][1]:  # dòng chỉ có thẻ cảm xúc mà engine không hỗ trợ → nghỉ ngắn
-                await anyio.to_thread.run_sync(_write_wav, path, np.zeros(int(0.4 * SR), dtype=np.float32))
+            if (
+                simple and not plan[0][1]
+            ):  # dòng chỉ có thẻ cảm xúc mà engine không hỗ trợ → nghỉ ngắn
+                await anyio.to_thread.run_sync(
+                    _write_wav, path, np.zeros(int(0.4 * SR), dtype=np.float32)
+                )
             elif simple:  # synth_segment ghi thẳng vào file cache của dòng (cùng khoá)
                 await synth_segment(engine, voice, plan[0][1], job.speed, seed=seed, force=True)
             else:
@@ -413,11 +515,17 @@ def _save_history(job: Job) -> None:
         except KeyError:  # bản đã bị xoá khỏi lịch sử
             pass
     seconds = round(sum(s.seconds for s in job.states), 1)
-    job.history_id = history.save("dialogue", {**job.meta, "seconds": seconds, "lines": len(job.lines)}, audio, ext)
+    job.history_id = history.save(
+        "dialogue", {**job.meta, "seconds": seconds, "lines": len(job.lines)}, audio, ext
+    )
 
 
 async def _finish(job: Job) -> None:
-    errors = [f"Dòng {i + 1} ({job.lines[i].speaker}): {s.error}" for i, s in enumerate(job.states) if s.status == "error"]
+    errors = [
+        f"Dòng {i + 1} ({job.lines[i].speaker}): {s.error}"
+        for i, s in enumerate(job.states)
+        if s.status == "error"
+    ]
     if errors:
         job.status, job.error = "error", "; ".join(errors)
     else:
@@ -450,17 +558,31 @@ async def regen_line(job: Job, i: int, seed: int | None) -> None:
 
 def job_info(job: Job) -> dict:
     return {
-        "id": job.id, "status": job.status, "done": job.done, "total": len(job.lines), "error": job.error,
+        "id": job.id,
+        "status": job.status,
+        "done": job.done,
+        "total": len(job.lines),
+        "error": job.error,
         "audio": {"wav": job.status == "done", "mp3": job.status == "done" and job.has_mp3},
         "lines": [
-            {"i": l.i, "speaker": l.speaker, "text": l.text, "pause": l.pause, "status": s.status,
-             "seconds": s.seconds, "seed": s.seed, "cached": s.cached, "error": s.error}
-            for l, s in zip(job.lines, job.states)
+            {
+                "i": line.i,
+                "speaker": line.speaker,
+                "text": line.text,
+                "pause": line.pause,
+                "status": s.status,
+                "seconds": s.seconds,
+                "seed": s.seed,
+                "cached": s.cached,
+                "error": s.error,
+            }
+            for line, s in zip(job.lines, job.states, strict=True)
         ],
     }
 
 
 # ───────────────────────────── project ─────────────────────────────
+
 
 class ProjectError(ValueError):
     pass
@@ -477,10 +599,14 @@ def save_project(data: dict) -> dict:
     if not name or len(name) > 80:
         raise ProjectError("Tên dự án phải từ 1 đến 80 ký tự.")
     project = {
-        "name": name, "script": str(data.get("script", "")), "cast": data.get("cast") or {},
-        "speed": int(data.get("speed", 0)), "gap_ms": int(data.get("gap_ms", 350)),
-        "paragraph_gap_ms": int(data.get("paragraph_gap_ms", 800)), "normalize": bool(data.get("normalize", True)),
-        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "name": name,
+        "script": str(data.get("script", "")),
+        "cast": data.get("cast") or {},
+        "speed": int(data.get("speed", 0)),
+        "gap_ms": int(data.get("gap_ms", 350)),
+        "paragraph_gap_ms": int(data.get("paragraph_gap_ms", 800)),
+        "normalize": bool(data.get("normalize", True)),
+        "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
     }
     pid = library.slugify(name)
     PROJECTS.mkdir(parents=True, exist_ok=True)
@@ -501,7 +627,7 @@ def list_projects() -> list[dict]:
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
             out.append({"id": p.stem, "name": d["name"], "updated_at": d.get("updated_at", "")})
-        except (OSError, ValueError, KeyError):
+        except OSError, ValueError, KeyError:
             continue
     return sorted(out, key=lambda x: x["updated_at"], reverse=True)
 

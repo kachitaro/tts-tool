@@ -48,7 +48,11 @@ def _ffmpeg() -> str:
 
 
 def _done_chapters(book_id: str, ns: list[int] | None) -> list[dict]:
-    chs = [c for c in books.list_chapters(book_id) if c.get("status") == "done" and books.chapter_audio(book_id, c["n"]).is_file()]
+    chs = [
+        c
+        for c in books.list_chapters(book_id)
+        if c.get("status") == "done" and books.chapter_audio(book_id, c["n"]).is_file()
+    ]
     if ns is not None:
         want = set(ns)
         chs = [c for c in chs if c["n"] in want]
@@ -68,13 +72,40 @@ def chapter_mp3(book: dict, meta: dict, kbps: int, total: int) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".tmp.mp3")
     title = f"{meta['n']}. {meta['title']}" if meta.get("title") else f"Chương {meta['n']}"
-    cmd = [_ffmpeg(), "-v", "error", "-y", "-i", str(src), "-vn", "-ac", "1", "-codec:a", "libmp3lame", "-b:a", f"{kbps}k",
-           "-id3v2_version", "3", "-metadata", f"title={title}", "-metadata", f"track={meta['n']}/{total}",
-           "-metadata", f"album={book['title']}", "-metadata", f"artist={book.get('author') or ''}", "-metadata", "genre=Audiobook", str(tmp)]
+    cmd = [
+        _ffmpeg(),
+        "-v",
+        "error",
+        "-y",
+        "-i",
+        str(src),
+        "-vn",
+        "-ac",
+        "1",
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        f"{kbps}k",
+        "-id3v2_version",
+        "3",
+        "-metadata",
+        f"title={title}",
+        "-metadata",
+        f"track={meta['n']}/{total}",
+        "-metadata",
+        f"album={book['title']}",
+        "-metadata",
+        f"artist={book.get('author') or ''}",
+        "-metadata",
+        "genre=Audiobook",
+        str(tmp),
+    ]
     r = subprocess.run(cmd, capture_output=True)
     if r.returncode != 0:
         tmp.unlink(missing_ok=True)
-        raise ExportError(f"ffmpeg lỗi ở chương {meta['n']}: {r.stderr.decode(errors='replace')[-300:]}")
+        raise ExportError(
+            f"ffmpeg lỗi ở chương {meta['n']}: {r.stderr.decode(errors='replace')[-300:]}"
+        )
     tmp.replace(out)
     return out
 
@@ -83,8 +114,8 @@ def chapter_mp3(book: dict, meta: dict, kbps: int, total: int) -> Path:
 class ExportJob:
     id: str
     book: str
-    kind: str                 # mp3zip | m4b
-    status: str = "running"   # running | done | error
+    kind: str  # mp3zip | m4b
+    status: str = "running"  # running | done | error
     done: int = 0
     total: int = 0
     chapters: int = 0
@@ -112,7 +143,9 @@ def _build_zip(book: dict, chs: list[dict], kbps: int, job: ExportJob) -> Path:
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:  # MP3 đã nén, không nén thêm
         for c in chs:
             mp3 = chapter_mp3(book, c, kbps, total)
-            z.write(mp3, f"{c['n']:04d} - {safe_name(c.get('title') or 'Chương ' + str(c['n']))}.mp3")
+            z.write(
+                mp3, f"{c['n']:04d} - {safe_name(c.get('title') or 'Chương ' + str(c['n']))}.mp3"
+            )
             job.done += 1
     tmp.replace(out)
     return out
@@ -123,21 +156,67 @@ def _build_m4b(book: dict, chs: list[dict], job: ExportJob) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".tmp.m4b")
     with tempfile.TemporaryDirectory() as td:
-        listing, meta = [], [";FFMETADATA1", f"title={book['title']}", f"artist={book.get('author') or ''}", f"album={book['title']}", "genre=Audiobook"]
+        listing, meta = (
+            [],
+            [
+                ";FFMETADATA1",
+                f"title={book['title']}",
+                f"artist={book.get('author') or ''}",
+                f"album={book['title']}",
+                "genre=Audiobook",
+            ],
+        )
         pos = 0
         for c in chs:
             src = books.chapter_audio(book["id"], c["n"])
             dur_ms = round(sf.info(str(src)).duration * 1000)
             listing.append("file '" + str(src).replace("'", "'\\''") + "'")
             title = c.get("title") or f"Chương {c['n']}"
-            meta += ["[CHAPTER]", "TIMEBASE=1/1000", f"START={pos}", f"END={pos + dur_ms}", f"title={c['n']}. {title}"]
+            meta += [
+                "[CHAPTER]",
+                "TIMEBASE=1/1000",
+                f"START={pos}",
+                f"END={pos + dur_ms}",
+                f"title={c['n']}. {title}",
+            ]
             pos += dur_ms
         job.total = max(pos, 1)  # tiến độ tính theo mili-giây audio đã mã hoá
         (Path(td) / "list.txt").write_text("\n".join(listing) + "\n", encoding="utf-8")
         (Path(td) / "meta.txt").write_text("\n".join(meta) + "\n", encoding="utf-8")
-        cmd = [_ffmpeg(), "-v", "error", "-y", "-nostats", "-progress", "pipe:1", "-f", "concat", "-safe", "0", "-i", str(Path(td) / "list.txt"),
-               "-i", str(Path(td) / "meta.txt"), "-map", "0:a", "-map_metadata", "1", "-map_chapters", "1", "-c:a", "aac",
-               "-b:a", f"{M4B_KBPS}k", "-ac", "1", "-movflags", "+faststart", "-f", "mp4", str(tmp)]
+        cmd = [
+            _ffmpeg(),
+            "-v",
+            "error",
+            "-y",
+            "-nostats",
+            "-progress",
+            "pipe:1",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(Path(td) / "list.txt"),
+            "-i",
+            str(Path(td) / "meta.txt"),
+            "-map",
+            "0:a",
+            "-map_metadata",
+            "1",
+            "-map_chapters",
+            "1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            f"{M4B_KBPS}k",
+            "-ac",
+            "1",
+            "-movflags",
+            "+faststart",
+            "-f",
+            "mp4",
+            str(tmp),
+        ]
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         for line in p.stdout:
             if line.startswith("out_time_us="):
@@ -165,10 +244,18 @@ def start(book: dict, kind: str, ns: list[int] | None = None, kbps: int = 64) ->
 
     async def run() -> None:
         try:
-            build = (lambda: _build_zip(book, chs, kbps, job)) if kind == "mp3zip" else (lambda: _build_m4b(book, chs, job))
+            build = (
+                (lambda: _build_zip(book, chs, kbps, job))
+                if kind == "mp3zip"
+                else (lambda: _build_m4b(book, chs, job))
+            )
             path = await anyio.to_thread.run_sync(build)
-            for c in chs:  # để nút "Xoá nguồn FLAC của chương đã xuất" biết chương nào đã có bản xuất
-                books.update_chapter(book["id"], c["n"], exported=sorted(set(c.get("exported") or []) | {kind}))
+            for (
+                c
+            ) in chs:  # để nút "Xoá nguồn FLAC của chương đã xuất" biết chương nào đã có bản xuất
+                books.update_chapter(
+                    book["id"], c["n"], exported=sorted(set(c.get("exported") or []) | {kind})
+                )
             job.file, job.size, job.status = path.name, path.stat().st_size, "done"
         except Exception as ex:  # noqa: BLE001
             job.error, job.status = str(ex) or type(ex).__name__, "error"
@@ -182,8 +269,14 @@ def list_files(book_id: str) -> list[dict]:
     d = export_dir(book_id)
     if not d.is_dir():
         return []
-    return [{"name": f.name, "size": f.stat().st_size, "modified": f.stat().st_mtime}
-            for f in sorted(d.iterdir(), key=lambda p: -p.stat().st_mtime) if f.is_file() and f.suffix in (".zip", ".m4b") and ".tmp." not in f.name and not f.name.endswith(".tmp")]
+    return [
+        {"name": f.name, "size": f.stat().st_size, "modified": f.stat().st_mtime}
+        for f in sorted(d.iterdir(), key=lambda p: -p.stat().st_mtime)
+        if f.is_file()
+        and f.suffix in (".zip", ".m4b")
+        and ".tmp." not in f.name
+        and not f.name.endswith(".tmp")
+    ]
 
 
 def file_path(book_id: str, name: str) -> Path:
