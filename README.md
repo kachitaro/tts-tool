@@ -68,15 +68,16 @@ Hội thoại ghép được giọng của cả hai engine; đầu ra luôn là 
 cd tts-tool
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-python -m pip install -e ".[vieneu,app,dev]"
+python -m pip install -e ".[tts,vieneu,app,dev]"
 ```
 
 Một lệnh cài mọi thứ; phần trong ngoặc vuông là các nhóm tuỳ chọn, bỏ nhóm nào không cần:
+- `tts`: edge-tts và xử lý audio (`numpy`, `librosa`, …). Bắt buộc để chạy `python -m giongviet`.
 - `vieneu`: engine chạy trên máy, chất lượng cao ("Chất lượng cao"). Bỏ thì chỉ còn edge-tts (online) và nút đó hiện "chưa cài".
 - `app`: app cửa sổ riêng (`pywebview`). Cần thêm gói hệ thống GTK / WebKitGTK, xem mục "App cửa sổ riêng".
 - `dev`: công cụ cho người sửa code (`ruff`; cấu hình ruff nằm trong `pyproject.toml`).
 
-Chỉ cần chạy server và dùng edge-tts: `python -m pip install -e .`.
+Chỉ cần chạy server và dùng edge-tts: `python -m pip install -e ".[tts]"`. Cài `python -m pip install -e .` (không nhóm nào) chỉ dành cho laptop lên lịch đăng bài (mục "Đăng bài từ xa").
 `ffmpeg` là tuỳ chọn: có thì hội thoại xuất thêm MP3 và đọc được thêm định dạng audio mẫu (webm/m4a).
 
 ## Cấu trúc thư mục
@@ -332,6 +333,47 @@ Nút **Chạy tất cả**, **Chạy thử 5 chương đầu**, **Chạy khoản
 - **Xuất:** MP3 từng chương (mono 64 / 80 / 96 kbps, ID3: tên chương, số thứ tự, album, tác giả) đóng zip, hoặc một file `.m4b` (AAC 64 kbps) có đánh dấu chương. Chỉ xuất chương đã xong. File nằm trong `data/books/<id>/export/`.
 - API: `GET /api/queue[?book=]`, `POST /api/books/{id}/queue/run` (`chapters`, `limit`, `regenerate`, `stale_only`), `POST /api/books/{id}/queue/focus`, `POST /api/queue/{pause,resume,cancel,settings}`, `POST /api/books/{id}/chapters/{n}/trial` + `GET /api/trials/{id}[/audio]`, `GET …/chapters/{n}/audio.mp3`, `POST /api/books/{id}/export` + `GET /api/exports/{id}` + `GET /api/books/{id}/export/{file}`, `GET /api/books/{id}/disk`, `POST /api/books/{id}/audio/purge-exported`.
 - API: `GET/POST /api/books`, `POST /api/books/import`, `GET/PATCH/DELETE /api/books/{id}`, `POST …/preview`, `POST …/chapters` (xác nhận), `GET …/chapters[/{n}[/sample?use_lexicon=]]`, `POST …/speak`, `POST …/lexicon/apply`, `GET …/suggest`, `GET/PUT /api/lexicon`. `preview`/`chapters` nhận thêm `exceptions`; `PATCH` nhận `exceptions`, `lexicon`, `dialogue_voice`.
+
+## Đăng bài từ xa (laptop lên lịch và đăng)
+
+Hai máy, mỗi máy một việc: **máy tạo giọng** (mạnh, không bật 24/24) tạo audio rồi đẩy file + lịch sang **laptop** (yếu, bật 24/24). Laptop giữ lịch và tự đăng đúng giờ kể cả khi máy tạo giọng đã tắt. Laptop không chạy TTS, chỉ cần `pip install -e .` (FastAPI, uvicorn, httpx; không có numpy / librosa).
+
+```
+máy tạo giọng: python -m giongviet   ── Tailscale / LAN, Bearer token ──▶   laptop: python -m giongviet.publisher ──▶ Telegram / Discord / Mastodon
+```
+
+**Trên laptop** (Linux + systemd, Python 3.14 như phần Cài đặt; bản distro cũ thì cài Python mới bằng `uv`):
+
+```bash
+git clone <repo> tts-tool && cd tts-tool
+python3 -m venv .venv && .venv/bin/python -m pip install -e .
+packaging/linux/install_publisher.sh     # tạo dịch vụ systemd, sinh token và in ra; gỡ: uninstall_publisher.sh [--purge]
+sudo loginctl enable-linger "$USER"      # chạy khi chưa đăng nhập, tự dậy sau khi mất điện
+```
+
+Điền bí mật của kênh vào `~/.local/share/giong-viet-publisher/secrets.json` (chmod 600, chỉ nằm trên laptop; máy tạo giọng không bao giờ giữ), rồi `systemctl --user restart giong-viet-publisher`:
+
+```json
+{"telegram": {"token": "123:ABC", "chat_id": "-1001234"},
+ "discord":  {"webhook": "https://discord.com/api/webhooks/..."},
+ "mastodon": {"instance": "https://mastodon.social", "token": "...", "visibility": "unlisted"}}
+```
+
+**Trên máy tạo giọng:** Cài đặt chung → *Laptop đăng bài* → dán địa chỉ (`http://<ip-laptop>:8800`) và token → *Lưu và thử kết nối*. Sau đó: nút **Đăng…** ở Lịch sử, trong ⋯ của từng chương đã xong, và cạnh file đã xuất; thanh trên cùng có **Lịch đăng** (xem trạng thái, đăng lại, xoá).
+
+**Hành vi cần biết:**
+- Laptop thử lại tối đa 3 lần (chờ 1, 5, 25 phút); kênh đã đăng xong không bị đăng lại. Bài quá giờ hơn `PUBLISHER_MISSED_HOURS` (6) lúc laptop mới bật lại thì chuyển "Bị lỡ" thay vì đăng nhầm giờ; bấm *Đăng lại* nếu vẫn muốn.
+- Mỗi bài có id do giao diện sinh: gửi lại khi rớt mạng không tạo bài thứ hai.
+- File gửi sang bị xoá khỏi laptop `PUBLISHER_KEEP_DAYS` (2) ngày sau khi xong (đĩa laptop nhỏ); sau đó *Đăng lại* phải gửi lại từ máy tạo giọng. Giới hạn mỗi file `PUBLISHER_MAX_MB` (200).
+- Telegram cắt nội dung ở 1024 ký tự khi kèm file. Giới hạn dung lượng của từng nền tảng (Telegram bot, Discord webhook…) là của họ; chương quá lớn sẽ báo lỗi ở Lịch đăng.
+- `m4b` / `zip` Telegram nhận như tài liệu, không phát được trong trình nghe; MP3 / M4A mới phát được.
+- Laptop từ chối khởi động nếu `HOST` không phải loopback mà thiếu `PUBLISHER_TOKEN`. Truy cập qua Tailscale / VPN, đừng mở cổng ra internet: token đi trong header, không có HTTPS.
+- Gập nắp làm laptop ngủ và lỡ giờ đăng: đặt `HandleLidSwitch=ignore` và `HandleLidSwitchExternalPower=ignore` trong `/etc/systemd/logind.conf`, rồi `sudo systemctl restart systemd-logind` (tool không tự sửa cấu hình hệ thống).
+- Biến môi trường laptop (trong `~/.config/giong-viet-publisher/env`): `HOST`, `PORT` (8800), `PUBLISHER_TOKEN`, `PUBLISHER_DATA`, `PUBLISHER_TICK` (30 giây), `PUBLISHER_MISSED_HOURS`, `PUBLISHER_KEEP_DAYS`, `PUBLISHER_MAX_MB`.
+- Thêm kênh mới: viết một hàm `(cfg, text, media, key)` trong `giongviet/publisher/channels.py`, thêm vào `CHANNELS` và khoá bắt buộc vào `REQUIRED`.
+- API laptop (Bearer token): `GET /api/channels`, `GET/POST /api/posts` (multipart: `id`, `channels`, `when` epoch UTC, `caption`, `file`), `PATCH/DELETE /api/posts/{id}`, `POST /api/posts/{id}/retry`. Máy tạo giọng có cầu nối `/api/publish/*` để token không lộ ra trình duyệt.
+
+Kiểm tra: `python tests/smoke/smoke_publish.py` (~10 giây, không gọi mạng thật: Discord được giả bằng server cục bộ).
 
 ## Kiểm tra nhanh
 

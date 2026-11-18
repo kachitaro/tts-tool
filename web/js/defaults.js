@@ -14,6 +14,12 @@ export async function saveNotify(on) {
   return cache;
 }
 
+/** Laptop đăng bài. token: null = giữ nguyên, "" = xoá. */
+export async function savePublisher(url, token) {
+  cache = await sendJSON("/api/settings", { publisher_url: url, ...(token != null && { publisher_token: token }) }, "PUT");
+  return cache;
+}
+
 const usable = (v) => v.usable !== false && (!v.lang || v.lang.startsWith("vi"));
 
 /** Giọng mặc định: người dùng đã chọn (nếu còn dùng được) → giọng có sẵn đánh dấu ★ đầu tiên của "Giọng trên máy"

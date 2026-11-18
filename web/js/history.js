@@ -1,6 +1,7 @@
 // Ngăn kéo "Lịch sử": mọi bản đã đọc (đọc một người và nhiều người), nghe lại, tải về, dùng lại, xoá.
 import { h, $, fmtDate } from "./dom.js";
 import { api, getJSON } from "./api.js";
+import { openPublish } from "./publish.js";
 import { play } from "./player.js";
 import { showError, toast, confirmBox } from "./ui.js";
 import { engines, voices } from "./store.js";
@@ -38,6 +39,7 @@ async function paint() {
       h("div", { class: "row" },
         h("button", { class: "play", "aria-label": "Nghe lại", onclick: () => play({ src: url, title: (m.kind === "dialogue" ? m.script : m.text).slice(0, 60), sub: title(m) }) }, "▶"),
         h("button", { class: "btn small", onclick: () => { pending.reuse = m; closeHistory(); go("/doc"); } }, "Dùng lại"),
+        h("button", { class: "btn small", onclick: () => { closeHistory(); openPublish({ kind: "history", id: m.id }, (m.kind === "dialogue" ? m.script : m.text).slice(0, 280)); } }, "Đăng…"),
         ...links.map(([ext, href]) => h("a", { class: "btn small", href, download: `giong-noi.${ext}` }, "Tải " + ext.toUpperCase())),
         h("button", { class: "btn small danger", onclick: async () => {
           try { await api("/api/history/" + m.id, { method: "DELETE" }); paint(); } catch (e) { showError(e); } } }, "Xoá")));

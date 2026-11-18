@@ -21,6 +21,7 @@ from giongviet import library, paths
 from giongviet.api import books as books_api
 from giongviet.api import dialogue as dialogue_api
 from giongviet.api import history as history_api
+from giongviet.api import publish as publish_api
 from giongviet.api import read as read_api
 from giongviet.api import settings as settings_api
 from giongviet.api import sfx as sfx_api
@@ -62,7 +63,16 @@ def index():
     return FileResponse(paths.WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-for _r in (settings_api, voices_api, read_api, sfx_api, dialogue_api, books_api, history_api):
+for _r in (
+    settings_api,
+    voices_api,
+    read_api,
+    sfx_api,
+    dialogue_api,
+    books_api,
+    history_api,
+    publish_api,
+):
     app.include_router(_r.router)
 
 

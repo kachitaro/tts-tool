@@ -40,6 +40,8 @@ class SettingsIn(BaseModel):
     notify: bool | None = (
         None  # báo khi tạo sách nói xong (thông báo desktop của server; giao diện web cũng theo)
     )
+    publisher_url: str | None = None  # laptop đăng bài ("" = xoá)
+    publisher_token: str | None = None  # "" = xoá; không gửi = giữ nguyên
 
 
 @router.put("/api/settings")
@@ -62,7 +64,9 @@ async def settings_put(body: SettingsIn):
             raise HTTPException(400, f"Không có giọng '{voice}'.")
         dv = {"engine": e.id, "voice": voice}
     try:
-        return settings.save(dv, body.notify)
+        return settings.save(
+            dv, body.notify, publisher_url=body.publisher_url, publisher_token=body.publisher_token
+        )
     except settings.SettingsError as ex:
         raise HTTPException(400, str(ex)) from ex
 

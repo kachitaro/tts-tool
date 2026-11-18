@@ -8,6 +8,7 @@ import { play } from "../player.js";
 import { menuButton } from "../menu.js";
 import { Pager, PAGE_SIZE } from "../pager.js";
 import { askNotifyPermission } from "../overview.js";
+import { openPublish } from "../publish.js";
 import { getBook, chaptersOf, queueOf, runQueue, startTrial, dismissTrial, trial, deleteBook } from "../bookapi.js";
 import { mountNamesTab } from "./book-names.js";
 import { mountCastTab } from "./book-cast.js";
@@ -100,7 +101,7 @@ export function mountBook(root, { id }) {
     if (!done) return toast(gone ? "Các chương này đã được tải về trước đó và bản gốc đã xoá. Tạo lại chương nếu muốn tải lần nữa." : "Chưa có chương nào xong để tải về.", { kind: "error", ms: 6000 });
     const state = { kbps: 64, from: "", to: "" };
     const msg = h("div", { class: "hint" }), files = h("div", { class: "stack", style: "--gap:6px;margin-top:10px" });
-    const paintFiles = (list) => files.replaceChildren(...list.map((f) => h("div", {}, "Đã chuẩn bị: ", h("a", { href: `/api/books/${encodeURIComponent(id)}/export/${encodeURIComponent(f.name)}`, download: f.name }, `${f.name} (${sizeText(f.size)})`))));
+    const paintFiles = (list) => files.replaceChildren(...list.map((f) => h("div", { class: "row" }, h("span", {}, "Đã chuẩn bị: ", h("a", { href: `/api/books/${encodeURIComponent(id)}/export/${encodeURIComponent(f.name)}`, download: f.name }, `${f.name} (${sizeText(f.size)})`)), h("button", { type: "button", class: "btn small", onclick: () => openPublish({ kind: "export", book: id, name: f.name }, book.title) }, "Đăng…"))));
     paintFiles(q.exports || []);
     const chosen = () => { if (state.from === "" && state.to === "") return null; const a = +state.from || 1, z = +state.to || chs.length; return Array.from({ length: Math.max(0, z - a + 1) }, (_, i) => a + i); };
     async function go2(kind) {
@@ -206,6 +207,7 @@ export function mountBook(root, { id }) {
       { label: "Nghe thử 1 phút từ giữa chương", hint: "Nơi hay có lời thoại và tên riêng", onclick: () => listen(c, { trial: true, chars: 900, offset: 0.5 }) },
       { label: "Xem chữ của chương", onclick: () => viewText(c) },
       c.status === "done" ? { label: "Tải chương này (MP3)", onclick: () => saveAs(`/api/books/${encodeURIComponent(id)}/chapters/${c.n}/audio.mp3`, `${c.n}.mp3`, { onDone: savedToast }).catch(showError) } : null,
+      c.status === "done" ? { label: "Đăng chương này…", hint: "Gửi sang laptop để đăng lên mạng xã hội", onclick: () => openPublish({ kind: "chapter", book: id, n: c.n }, `${book.title} — ${c.title || "Chương " + c.n}`) } : null,
     ];
     return h("div", { class: "chrow" }, h("div", { class: "name" }, h("b", {}, `${c.n}. `), c.title || "(không có tên)", h("div", { class: "sub" + (c.stale || c.status === "error" ? " warnc" : "") }, statusText(c))),
       c.status === "running" && c.segments && c.segments.total ? h("div", { style: "width:90px" }, h("div", { class: "bar" }, h("i", { style: `width:${Math.round((100 * c.segments.done) / c.segments.total)}%` }))) : null,

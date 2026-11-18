@@ -15,7 +15,7 @@ ICON_DIR="$DATA_HOME/icons/hicolor/scalable/apps"
 
 die() { echo "Lỗi: $*" >&2; exit 1; }
 
-[ -x "$PY" ] || die "chưa có $PY. Tạo trước: cd '$REPO' && python3 -m venv .venv && .venv/bin/python -m pip install -e ".[vieneu]""
+[ -x "$PY" ] || die "chưa có $PY. Tạo trước: cd '$REPO' && python3 -m venv .venv && .venv/bin/python -m pip install -e ".[tts,vieneu]""
 
 if ! "$PY" -c "import webview" 2>/dev/null; then
   echo "• Cài pywebview vào .venv (pip, không cần root)…"

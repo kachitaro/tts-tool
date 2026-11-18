@@ -3,7 +3,7 @@ import { h, sizeText as fmtBytes } from "./dom.js";
 import { getJSON, sendJSON } from "./api.js";
 import { modal, switchEl, showError, toast } from "./ui.js";
 import { engines, voices } from "./store.js";
-import { getSettings, saveDefaultVoice, saveNotify, effectiveDefault } from "./defaults.js";
+import { getSettings, saveDefaultVoice, saveNotify, savePublisher, effectiveDefault } from "./defaults.js";
 import { VoicePicker, keyOf, displayName, metaLine } from "./voicepicker.js";
 import { showShortcuts } from "./shortcuts.js";
 import { askNotifyPermission } from "./overview.js";
@@ -31,6 +31,17 @@ export async function openSettings() {
       h("div", { class: "row end", style: "margin-top:14px" }, h("button", { class: "btn", onclick: () => { p.close(); openSettings(); } }, "Đóng"))], { wide: true });
   };
   paintDefault();
+  const urlIn = h("input", { type: "url", value: st.publisher_url || "", placeholder: "http://laptop:8800" });
+  const tokIn = h("input", { type: "password", autocomplete: "off", placeholder: st.publisher_token_set ? "Đã đặt (để trống = giữ nguyên)" : "Token của laptop" });
+  const savePub = async () => {
+    try {
+      st = await savePublisher(urlIn.value, tokIn.value || null);
+      tokIn.value = ""; tokIn.placeholder = st.publisher_token_set ? "Đã đặt (để trống = giữ nguyên)" : "Token của laptop";
+      if (!st.publisher_url) return toast("Đã xoá địa chỉ laptop.");
+      const ch = await getJSON("/api/publish/channels");
+      toast(`Kết nối được laptop. Kênh sẵn sàng: ${ch.filter((c) => c.configured).map((c) => c.id).join(", ") || "chưa có kênh nào"}.`);
+    } catch (e) { showError(e); }
+  };
   const m = modal([
     h("h3", {}, "Cài đặt chung"),
     h("div", { class: "stack", style: "--gap:16px" },
@@ -40,6 +51,12 @@ export async function openSettings() {
       }),
       h("div", { class: "hint", style: "margin-top:-8px" }, q.inhibit === "unavailable" ? "Máy này không hỗ trợ tính năng này, tool sẽ bỏ qua." : "Tạo cả bộ truyện mất nhiều giờ; máy sẽ không tự tắt màn hình đi ngủ giữa chừng."),
       switchEl("Báo cho tôi khi tạo xong (hiện thông báo trên màn hình)", st.notify !== false, async (on) => { try { st = await saveNotify(on); if (on) askNotifyPermission(); } catch (e) { showError(e); } }),
+      h("details", { class: "adv", open: !!st.publisher_url, style: "margin:0" }, h("summary", {}, "Laptop đăng bài"),
+        h("div", { class: "adv-body stack", style: "--gap:10px" },
+          h("div", { class: "muted" }, "Laptop chạy 24/24 giữ lịch và đăng bài lên mạng xã hội; máy này chỉ gửi file sang."),
+          h("label", { class: "field" }, "Địa chỉ laptop"), urlIn,
+          h("label", { class: "field" }, "Token"), tokIn,
+          h("div", { class: "row" }, h("button", { type: "button", class: "btn small", onclick: savePub }, "Lưu và thử kết nối")))),
       h("details", { class: "adv", style: "margin:0" }, h("summary", {}, "Nâng cao"),
         h("div", { class: "adv-body stack", style: "--gap:10px" },
           h("dl", { class: "kv" },

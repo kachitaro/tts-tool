@@ -10,6 +10,7 @@ import { savedToast, showError } from "./ui.js";
 import { cleanupStorage } from "./store.js";
 import { overview, refreshOverview } from "./overview.js";
 import { openHistory, closeHistory } from "./history.js";
+import { openSchedule } from "./publish.js";
 import { openSettings } from "./settings.js";
 import { mountHome } from "./views/home.js";
 import { mountBooks } from "./views/books.js";
@@ -42,6 +43,7 @@ function paintRunning() {
 
 $("#running").addEventListener("click", () => go("/sach/" + encodeURIComponent($("#running").dataset.book)));
 $("#btnHistory").addEventListener("click", openHistory);
+$("#btnSchedule").addEventListener("click", openSchedule);
 $("#btnSettings").addEventListener("click", openSettings);
 $("#scrim").addEventListener("click", closeHistory);
 $("#logo").addEventListener("click", () => go("/"));

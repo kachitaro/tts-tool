@@ -1,6 +1,8 @@
 # Thay cho requirements.txt, requirements-app.txt, requirements-dev.txt và ruff.toml.
-# Cài (một lần, trong .venv):  .venv/bin/python -m pip install -e ".[vieneu,app,dev]"
-#   vieneu: engine offline chất lượng cao (bỏ nếu chỉ cần edge-tts)
+# Máy tạo giọng (một lần, trong .venv):  .venv/bin/python -m pip install -e ".[tts,vieneu,app,dev]"
+# Laptop chỉ lên lịch/đăng bài (nhẹ, không numpy/librosa):  .venv/bin/python -m pip install -e .
+#   tts:    edge-tts + xử lý audio (numpy, librosa, …); cần cho python -m giongviet
+#   vieneu: engine offline chất lượng cao (cần tts; bỏ nếu chỉ cần edge-tts)
 #   app:    app cửa sổ riêng (cần thêm gói hệ thống GTK/WebKitGTK, xem README)
 #   dev:    ruff
 [project]
@@ -11,6 +13,11 @@ dependencies = [
   "fastapi>=0.110",
   "uvicorn>=0.29",
   "python-multipart>=0.0.9",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+tts = [
   "edge-tts>=7.0",
   "numpy",
   "soundfile",
@@ -18,8 +25,7 @@ dependencies = [
   "soxr",
 ]
 
-[project.optional-dependencies]
-vieneu = ["vieneu>=3.8"]
+vieneu = ["giong-viet[tts]", "vieneu>=3.8"]
 app = ["pywebview>=6.2,<7"]
 dev = ["ruff==0.17.4"]
 
